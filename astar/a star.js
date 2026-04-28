@@ -1,187 +1,241 @@
-let labyrinth = generateLab(100)
+let labyrinth = generateLab(7000)
 
-function find(obj){
-    if(obj == "start"){
-        obj = 2
-    } else if (obj == "end"){
-        obj = 3
+class MinHeap {
+    constructor() {
+        this.data = []
     }
-    let out;
-    labyrinth.forEach((element, index) =>{
-        element.forEach((element2, index2) =>{
-            if(element2 == obj) {
-                out = [index, index2]
-            }
-        })
-    })
-    return out
-}
-let end = find("end")
-let start = find("start")
 
-function geth(point){
+    push(node) {
+        this.data.push(node)
+        this._siftUp(this.data.length - 1)
+    }
+
+    pop() {
+        if (this.data.length === 0) {
+            return undefined
+        }
+
+        const top = this.data[0]
+        const last = this.data.pop()
+
+        if (this.data.length > 0) {
+            this.data[0] = last
+            this._siftDown(0)
+        }
+
+        return top
+    }
+
+    get size() {
+        return this.data.length
+    }
+
+    _siftUp(index) {
+        while (index > 0) {
+            const parent = (index - 1) >> 1
+
+            if (this.data[index].f < this.data[parent].f) {
+                [this.data[index], this.data[parent]] = [this.data[parent], this.data[index]]
+                index = parent
+            } else {
+                break
+            }
+        }
+    }
+
+    _siftDown(index) {
+        const size = this.data.length
+
+        while (true) {
+            const left = (2 * index) + 1
+            const right = (2 * index) + 2
+            let smallest = index
+
+            if (left < size && this.data[left].f < this.data[smallest].f) {
+                smallest = left
+            }
+
+            if (right < size && this.data[right].f < this.data[smallest].f) {
+                smallest = right
+            }
+
+            if (smallest === index) {
+                break
+            }
+
+            [this.data[index], this.data[smallest]] = [this.data[smallest], this.data[index]]
+            index = smallest
+        }
+    }
+}
+
+function key(x, y) {
+    return x + "," + y
+}
+
+function findStartAndEnd() {
+    let startCoord
+    let endCoord
+
+    for (let i = 0; i < labyrinth.length; i++) {
+        for (let j = 0; j < labyrinth[i].length; j++) {
+            if (labyrinth[i][j] === 2) {
+                startCoord = [i, j]
+            } else if (labyrinth[i][j] === 3) {
+                endCoord = [i, j]
+            }
+
+            if (startCoord && endCoord) {
+                return { startCoord, endCoord }
+            }
+        }
+    }
+
+    return { startCoord, endCoord }
+}
+
+const { startCoord, endCoord } = findStartAndEnd()
+let start = startCoord
+let end = endCoord
+
+function geth(point) {
     return Math.abs(end[0] - point[0]) + Math.abs(end[1] - point[1])
 }
 
-function findbestpoint(){
-    if (unusedpoints.length === 0) {
-        return -1; // Signalisiert: Nichts mehr zu tun!
-    }
-    let lowestf = unusedpoints[0].f
-    let bestpoint = 0
-    unusedpoints.forEach((element, index) => {
-        if (element.f < lowestf){
-            lowestf = element.f
-            bestpoint = index
-        }
-        
-    });
-    return bestpoint
+function pointgeneratet(point) {
+    const pointKey = key(point[0], point[1])
+    return openSet.has(pointKey) || closedSet.has(pointKey)
 }
 
-function pointgeneratet(point){
-    console.log(point)
-    let out = false
-    unusedpoints.forEach((element, index) => {
-        if(unusedpoints[index].coords[0] == point[0] && unusedpoints[index].coords[1] == point[1]){
-            out = true
-        }
-    });
-    usedpoints.forEach((element, index) => {
-        if(usedpoints[index].coords[0] == point[0] && usedpoints[index].coords[1] == point[1]){
-            out = true
-        }
-    });
-    return out
-}
+function generatenewpoints(current) {
+    const xx = current.coords[0]
+    const yy = current.coords[1]
 
-function generatenewpoints(index){
-    let xx = unusedpoints[index].coords[0]
-    let yy = unusedpoints[index].coords[1]
-    if (xx - 1 >= 0 && !pointgeneratet([xx -1, yy])){
-        if (labyrinth[xx -1][yy] != 1){
-            unusedpoints.push({
-                coords: [xx -1, yy],
-                g: unusedpoints[index].g + 1,
-                f: unusedpoints[index].g + 1 + geth([xx -1, yy]),
-                pointer: [xx, yy]
-        })
-        }
-        if (labyrinth[xx -1][yy] == 3){
-            foundziel = true
+    function tryNeighbor(nx, ny) {
+        if (nx < 0 || nx >= labyrinth.length) {
+            return
         }
 
-    }
-    if (xx + 1 < labyrinth.length && !pointgeneratet([xx +1, yy])){
-        if (labyrinth[xx +1][yy] != 1){
-            unusedpoints.push({
-                coords: [xx +1, yy],
-                g: unusedpoints[index].g + 1,
-                f: unusedpoints[index].g + 1 + geth([xx +1, yy]),
-                pointer: [xx, yy]
-        })
+        if (ny < 0 || ny >= labyrinth[nx].length) {
+            return
         }
-        if (labyrinth[xx +1][yy] == 3){
+
+        if (labyrinth[nx][ny] === 1 || pointgeneratet([nx, ny])) {
+            return
+        }
+
+        const node = {
+            coords: [nx, ny],
+            g: current.g + 1,
+            f: current.g + 1 + geth([nx, ny]),
+            pointer: [xx, yy]
+        }
+
+        openHeap.push(node)
+
+        const nodeKey = key(nx, ny)
+        openSet.add(nodeKey)
+        nodeByKey.set(nodeKey, node)
+
+        if (labyrinth[nx][ny] === 3) {
             foundziel = true
         }
     }
-    if (yy - 1 >= 0 && !pointgeneratet([xx, yy -1])){
-        if (labyrinth[xx][yy -1] != 1){
-            unusedpoints.push({
-                coords: [xx, yy -1],
-                g: unusedpoints[index].g + 1,
-                f: unusedpoints[index].g + 1 + geth([xx, yy -1]),
-                pointer: [xx, yy]
-        })
-        }
-        if (labyrinth[xx][yy -1] == 3){
-            foundziel = true
-        }
 
-    }
-    if (yy + 1 < labyrinth[xx].length && !pointgeneratet([xx, yy +1])){
-        if (labyrinth[xx][yy +1] != 1){
-            unusedpoints.push({
-                coords: [xx, yy +1],
-                g: unusedpoints[index].g + 1,
-                f: unusedpoints[index].g + 1 + geth([xx, yy +1]),
-                pointer: [xx, yy]
-        })
-        }
-        if (labyrinth[xx][yy +1] == 3){
-            foundziel = true
-        }
+    tryNeighbor(xx - 1, yy)
+    tryNeighbor(xx + 1, yy)
+    tryNeighbor(xx, yy - 1)
+    tryNeighbor(xx, yy + 1)
 
-    }
+    usedpoints.push(current)
 
-
-    usedpoints.push(unusedpoints[index])
-    unusedpoints.splice(index,1)
+    const currentKey = key(xx, yy)
+    openSet.delete(currentKey)
+    closedSet.add(currentKey)
 }
 
 let foundziel = false
 
-function reconstructPath(){
-        console.log("generatet end")
-        let lastpointer = []
-        unusedpoints.forEach((element, index) => {
-            if (unusedpoints[index].coords[0] == end[0] && unusedpoints[index].coords[1] == end[1]){
-                console.log("found end")
-                console.log(index)
-                lastpointer = unusedpoints[index].pointer
-                output1[unusedpoints[index].coords[0]][unusedpoints[index].coords[1]] = 3
-                output2.unshift(unusedpoints[index].coords)
-                console.log(lastpointer)
-            }
-        });
-        console.log(lastpointer)
-        let i = 0
-        while (lastpointer.length > 0){
-            usedpoints.forEach((element, index) => {
-                if (usedpoints[index].coords[0] == lastpointer[0] && usedpoints[index].coords[1] == lastpointer[1]){
-                    lastpointer = usedpoints[index].pointer
-                    output1[usedpoints[index].coords[0]][usedpoints[index].coords[1]] = 8
-                    output2.unshift(usedpoints[index].coords)
-                }
-            });
-        }
-        console.log("generation complete")
+function reconstructPath() {
+    let node = nodeByKey.get(key(end[0], end[1]))
+
+    if (!node) {
+        console.log("Endpunkt nicht in Map gefunden")
         return end
+    }
+
+    output1[node.coords[0]][node.coords[1]] = 3
+    output2.unshift(node.coords)
+
+    while (node.pointer.length > 0) {
+        node = nodeByKey.get(key(node.pointer[0], node.pointer[1]))
+
+        if (!node) {
+            break
+        }
+
+        output1[node.coords[0]][node.coords[1]] = 8
+        output2.unshift(node.coords)
+    }
+
+    console.log("generation complete")
+    return end
 }
 
 function startPathfinding() {
-    let found = false;
+    let found = false
 
-    while (unusedpoints.length > 0) {
-        let bestIdx = findbestpoint();
-        
-        // 1. Punkt verarbeiten
-        generatenewpoints(bestIdx);
+    console.time("astar")
 
-        // 2. Prüfen, ob das Ende erreicht wurde
+    while (openHeap.size > 0) {
+        const current = openHeap.pop()
+        const currentKey = key(current.coords[0], current.coords[1])
+
+        if (closedSet.has(currentKey)) {
+            continue
+        }
+
+        if (current.coords[0] === end[0] && current.coords[1] === end[1]) {
+            openSet.delete(currentKey)
+            closedSet.add(currentKey)
+            usedpoints.push(current)
+            found = true
+            break
+        }
+
+        generatenewpoints(current)
+
         if (foundziel) {
-            console.log("Ziel gefunden!");
-            found = true;
-            break; // Schleife sofort beenden
+            console.log("Ziel gefunden!")
+            found = true
+            break
         }
     }
 
+    console.timeEnd("astar")
+
     if (found) {
-        reconstructPath(); // Hier lagerst du deinen Code zum Pfad-Zeichnen aus
+        reconstructPath()
     } else {
-        console.log("Kein Weg möglich.");
+        console.log("Kein Weg möglich.")
     }
 }
 
-let output1 = JSON.parse(JSON.stringify(labyrinth));
+let output1 = JSON.parse(JSON.stringify(labyrinth))
 let output2 = []
+let usedpoints = []
+let openHeap = new MinHeap()
+let openSet = new Set()
+let closedSet = new Set()
+let nodeByKey = new Map()
 
-let unusedpoints = [{
+const startNode = {
     coords: start,
     g: 0,
     f: geth(start),
     pointer: []
 }
-]
 
-let usedpoints = []
+openHeap.push(startNode)
+openSet.add(key(start[0], start[1]))
+nodeByKey.set(key(start[0], start[1]), startNode)
