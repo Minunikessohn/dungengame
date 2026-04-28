@@ -33,6 +33,12 @@
             align-items: center;
             justify-content: center;
             overflow: hidden;
+            cursor: grab;
+            user-select: none;
+        }
+
+        #labyrinth-wrapper.dragging {
+            cursor: grabbing;
         }
 
         #labyrinth-canvas {
@@ -59,6 +65,7 @@
             Ausgabe aktiv
         </label>
     </div>
+    <div>Mausrad: Zoom. Ziehen: Bewegen.</div>
     <div id="labyrinth-wrapper">
         <canvas id="labyrinth-canvas"></canvas>
     </div>

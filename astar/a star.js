@@ -19,10 +19,27 @@ let labyrinthWrapperCache
 let searchSpeedInputCache
 let renderScheduled = false
 let visitedHighlights = new Map()
+let viewZoom = 1
+let viewPanX = 0
+let viewPanY = 0
+let isCanvasDragging = false
+let dragStartX = 0
+let dragStartY = 0
+let dragStartPanX = 0
+let dragStartPanY = 0
+let canvasInteractionsInitialized = false
+let activeExpansion = null
+let forceNextProgressLog = false
 
 const DEFAULT_SEARCH_SPEED = 600
 const VISITED_HIGHLIGHT_FADE_MS = 1400
-const MAX_BATCHES_PER_SECOND = 30
+const VISITED_HIGHLIGHT_FRESH_MS = 180
+const VISITED_HIGHLIGHT_DARK_MS = 950
+const SEARCH_BATCH_INTERVAL_MS = 50
+const GENERATION_UI_CHUNK_WITH_OUTPUT = 4096
+const GENERATION_UI_CHUNK_WITHOUT_OUTPUT = 32768
+const MIN_ZOOM = 0.25
+const MAX_ZOOM = 24
 
 const CELL_COLORS = {
     empty: "#ffffff",
@@ -30,11 +47,12 @@ const CELL_COLORS = {
     start: "#1fa34a",
     end: "#d83b01",
     path: "#2d7ff9",
-    visited: "#f5c542"
+    visitedFresh: "#ffe100",
+    visitedSettled: "#8f6a00"
 }
 
 function getOutputField() {
-    if (!loggingEnabled || typeof document === "undefined") {
+    if (typeof document === "undefined") {
         return null
     }
 
@@ -101,11 +119,11 @@ function getCanvasLayout(rowCount, columnCount) {
     const defaultHeight = 620
     const availableWidth = wrapper ? Math.max(120, wrapper.clientWidth || defaultWidth) : defaultWidth
     const availableHeight = wrapper ? Math.max(120, wrapper.clientHeight || defaultHeight) : defaultHeight
-    const cellSize = Math.min(availableWidth / columnCount, availableHeight / rowCount)
-    const width = Math.max(1, columnCount * cellSize)
-    const height = Math.max(1, rowCount * cellSize)
+    const baseCellSize = Math.min(availableWidth / columnCount, availableHeight / rowCount)
+    const width = Math.max(1, availableWidth)
+    const height = Math.max(1, availableHeight)
 
-    return { cellSize, width, height }
+    return { baseCellSize, width, height }
 }
 
 function resizeCanvas(width, height) {
@@ -138,10 +156,13 @@ function clearLabyrinthCanvas() {
     context.clearRect(0, 0, canvas.width, canvas.height)
 }
 
-function drawGridLines(context, rowCount, columnCount, cellSize, width, height) {
+function drawGridLines(context, rowCount, columnCount, cellSize) {
     if (cellSize < 4) {
         return
     }
+
+    const gridWidth = columnCount * cellSize
+    const gridHeight = rowCount * cellSize
 
     context.save()
     context.strokeStyle = "#111111"
@@ -149,15 +170,15 @@ function drawGridLines(context, rowCount, columnCount, cellSize, width, height) 
     context.beginPath()
 
     for (let rowIndex = 0; rowIndex <= rowCount; rowIndex++) {
-        const y = Math.min(height, rowIndex * cellSize)
+        const y = Math.min(gridHeight, rowIndex * cellSize)
         context.moveTo(0, y)
-        context.lineTo(width, y)
+        context.lineTo(gridWidth, y)
     }
 
     for (let columnIndex = 0; columnIndex <= columnCount; columnIndex++) {
-        const x = Math.min(width, columnIndex * cellSize)
+        const x = Math.min(gridWidth, columnIndex * cellSize)
         context.moveTo(x, 0)
-        context.lineTo(x, height)
+        context.lineTo(x, gridHeight)
     }
 
     context.stroke()
@@ -167,6 +188,113 @@ function drawGridLines(context, rowCount, columnCount, cellSize, width, height) 
 function drawCell(context, rowIndex, columnIndex, cellSize, color) {
     context.fillStyle = color
     context.fillRect(columnIndex * cellSize, rowIndex * cellSize, cellSize, cellSize)
+}
+
+function clamp(value, minValue, maxValue) {
+    return Math.min(maxValue, Math.max(minValue, value))
+}
+
+function resetViewport() {
+    viewZoom = 1
+    viewPanX = 0
+    viewPanY = 0
+}
+
+function getViewportState(rowCount, columnCount) {
+    const { baseCellSize, width, height } = getCanvasLayout(rowCount, columnCount)
+    const cellSize = baseCellSize * viewZoom
+    const labyrinthWidth = columnCount * cellSize
+    const labyrinthHeight = rowCount * cellSize
+    const originX = ((width - labyrinthWidth) / 2) + viewPanX
+    const originY = ((height - labyrinthHeight) / 2) + viewPanY
+
+    return {
+        width,
+        height,
+        cellSize,
+        labyrinthWidth,
+        labyrinthHeight,
+        originX,
+        originY
+    }
+}
+
+function resizeViewportZoom(nextZoom, anchorX, anchorY, rowCount, columnCount) {
+    const previousState = getViewportState(rowCount, columnCount)
+    const worldX = (anchorX - previousState.originX) / previousState.cellSize
+    const worldY = (anchorY - previousState.originY) / previousState.cellSize
+
+    viewZoom = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM)
+
+    const nextState = getViewportState(rowCount, columnCount)
+    viewPanX += anchorX - (nextState.originX + (worldX * nextState.cellSize))
+    viewPanY += anchorY - (nextState.originY + (worldY * nextState.cellSize))
+}
+
+function initializeCanvasInteractions() {
+    if (canvasInteractionsInitialized || typeof window === "undefined") {
+        return
+    }
+
+    const wrapper = getLabyrinthWrapper()
+
+    if (!wrapper || typeof wrapper.addEventListener !== "function") {
+        return
+    }
+
+    wrapper.addEventListener("wheel", event => {
+        if (!labyrinth || labyrinth.length === 0) {
+            return
+        }
+
+        event.preventDefault()
+
+        const zoomFactor = event.deltaY < 0 ? 1.12 : 1 / 1.12
+        const nextZoom = viewZoom * zoomFactor
+        const rect = typeof wrapper.getBoundingClientRect === "function"
+            ? wrapper.getBoundingClientRect()
+            : { left: 0, top: 0 }
+
+        resizeViewportZoom(nextZoom, event.clientX - rect.left, event.clientY - rect.top, labyrinth.length, labyrinth[0].length)
+        scheduleLabyrinthRender()
+    }, { passive: false })
+
+    wrapper.addEventListener("mousedown", event => {
+        isCanvasDragging = true
+        dragStartX = event.clientX
+        dragStartY = event.clientY
+        dragStartPanX = viewPanX
+        dragStartPanY = viewPanY
+
+        if (typeof wrapper.classList !== "undefined") {
+            wrapper.classList.add("dragging")
+        }
+    })
+
+    const stopDragging = () => {
+        isCanvasDragging = false
+
+        if (typeof wrapper.classList !== "undefined") {
+            wrapper.classList.remove("dragging")
+        }
+    }
+
+    wrapper.addEventListener("mouseleave", stopDragging)
+
+    if (typeof window.addEventListener === "function") {
+        window.addEventListener("mouseup", stopDragging)
+        window.addEventListener("mousemove", event => {
+            if (!isCanvasDragging) {
+                return
+            }
+
+            viewPanX = dragStartPanX + (event.clientX - dragStartX)
+            viewPanY = dragStartPanY + (event.clientY - dragStartY)
+            scheduleLabyrinthRender()
+        })
+    }
+
+    canvasInteractionsInitialized = true
 }
 
 function blendColorToWhite(hexColor, ratio) {
@@ -185,7 +313,8 @@ function markVisitedCell(point) {
     visitedHighlights.set(key(point[0], point[1]), {
         row: point[0],
         column: point[1],
-        markedAt: nowMs()
+        markedAt: nowMs(),
+        refreshedAt: nowMs()
     })
 }
 
@@ -209,8 +338,15 @@ function drawVisitedHighlights(context, cellSize) {
             continue
         }
 
-        const fadeRatio = age / VISITED_HIGHLIGHT_FADE_MS
-        const color = blendColorToWhite(CELL_COLORS.visited, fadeRatio)
+        let color = CELL_COLORS.visitedSettled
+
+        if (age <= VISITED_HIGHLIGHT_FRESH_MS) {
+            color = CELL_COLORS.visitedFresh
+        } else if (age > VISITED_HIGHLIGHT_DARK_MS) {
+            const fadeRatio = (age - VISITED_HIGHLIGHT_DARK_MS) / (VISITED_HIGHLIGHT_FADE_MS - VISITED_HIGHLIGHT_DARK_MS)
+            color = blendColorToWhite(CELL_COLORS.visitedSettled, fadeRatio)
+        }
+
         drawCell(context, highlight.row, highlight.column, cellSize, color)
         hasActiveHighlights = true
     }
@@ -232,7 +368,7 @@ function renderLabyrinth() {
 
     const rowCount = labyrinth.length
     const columnCount = labyrinth[0].length
-    const { cellSize, width, height } = getCanvasLayout(rowCount, columnCount)
+    const { width, height, cellSize, originX, originY } = getViewportState(rowCount, columnCount)
     const resizedContext = resizeCanvas(width, height)
 
     if (!resizedContext) {
@@ -240,6 +376,8 @@ function renderLabyrinth() {
     }
 
     resizedContext.clearRect(0, 0, width, height)
+    resizedContext.save()
+    resizedContext.translate(originX, originY)
 
     for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
         for (let columnIndex = 0; columnIndex < columnCount; columnIndex++) {
@@ -265,7 +403,8 @@ function renderLabyrinth() {
         drawCell(resizedContext, end[0], end[1], cellSize, CELL_COLORS.end)
     }
 
-    drawGridLines(resizedContext, rowCount, columnCount, cellSize, width, height)
+    drawGridLines(resizedContext, rowCount, columnCount, cellSize)
+    resizedContext.restore()
 
     if (hasActiveHighlights) {
         scheduleLabyrinthRender()
@@ -299,7 +438,18 @@ function setLoggingEnabled(enabled) {
 
     if (!loggingEnabled) {
         clearOutput()
+    } else {
+        forceNextProgressLog = true
     }
+}
+
+function consumeForcedProgressLog() {
+    if (!forceNextProgressLog) {
+        return false
+    }
+
+    forceNextProgressLog = false
+    return true
 }
 
 function getSearchSpeed() {
@@ -361,10 +511,6 @@ function clearOutput() {
 }
 
 function yieldToUi() {
-    if (!isLoggingEnabled()) {
-        return Promise.resolve()
-    }
-
     return new Promise(resolve => {
         setTimeout(resolve, 0)
     })
@@ -413,6 +559,8 @@ async function startgenerateLab(size) {
     output2 = []
     usedpoints = []
     clearVisitedHighlights()
+    resetViewport()
+    activeExpansion = null
     openHeap = new MinHeap()
     openSet = new Set()
     closedSet = new Set()
@@ -540,8 +688,11 @@ function pointgeneratet(point) {
 function generatenewpoints(current) {
     const xx = current.coords[0]
     const yy = current.coords[1]
+    let inspectedNeighbors = 0
 
     function tryNeighbor(nx, ny) {
+        inspectedNeighbors += 1
+
         if (nx < 0 || nx >= labyrinth.length) {
             return
         }
@@ -582,6 +733,8 @@ function generatenewpoints(current) {
     const currentKey = key(xx, yy)
     openSet.delete(currentKey)
     closedSet.add(currentKey)
+
+    return inspectedNeighbors
 }
 
 let foundziel = false
@@ -650,7 +803,9 @@ function createProgressTracker() {
         }
 
         const currentTime = nowMs()
-        if (currentTime - lastLogAt < 1000) {
+        const forceLogNow = consumeForcedProgressLog()
+
+        if (!forceLogNow && currentTime - lastLogAt < 1000) {
             return
         }
 
@@ -681,35 +836,79 @@ function createProgressTracker() {
 }
 
 function processPathfindingStep(progressTracker) {
-    if (openHeap.size === 0) {
-        return { found: false, finished: true }
+    while (!activeExpansion) {
+        if (openHeap.size === 0) {
+            return { found: false, finished: true, inspectedNeighbors: 0 }
+        }
+
+        const current = openHeap.pop()
+        const currentKey = key(current.coords[0], current.coords[1])
+
+        if (closedSet.has(currentKey)) {
+            continue
+        }
+
+        progressTracker.tick()
+        markVisitedCell(current.coords)
+
+        if (current.coords[0] === end[0] && current.coords[1] === end[1]) {
+            openSet.delete(currentKey)
+            closedSet.add(currentKey)
+            usedpoints.push(current)
+            return { found: true, finished: true, inspectedNeighbors: 0 }
+        }
+
+        activeExpansion = {
+            current,
+            currentKey,
+            nextNeighborIndex: 0,
+            neighbors: [
+                [current.coords[0] - 1, current.coords[1]],
+                [current.coords[0] + 1, current.coords[1]],
+                [current.coords[0], current.coords[1] - 1],
+                [current.coords[0], current.coords[1] + 1]
+            ]
+        }
     }
 
-    const current = openHeap.pop()
-    const currentKey = key(current.coords[0], current.coords[1])
+    const expansion = activeExpansion
+    const [nx, ny] = expansion.neighbors[expansion.nextNeighborIndex]
+    expansion.nextNeighborIndex += 1
 
-    if (closedSet.has(currentKey)) {
-        return { found: false, finished: false, skipped: true }
+    if (nx >= 0 && nx < labyrinth.length && ny >= 0 && ny < labyrinth[nx].length) {
+        if (labyrinth[nx][ny] !== 1 && !pointgeneratet([nx, ny])) {
+            const node = {
+                coords: [nx, ny],
+                g: expansion.current.g + 1,
+                f: expansion.current.g + 1 + geth([nx, ny]),
+                pointer: [expansion.current.coords[0], expansion.current.coords[1]]
+            }
+
+            openHeap.push(node)
+
+            const nodeKey = key(nx, ny)
+            openSet.add(nodeKey)
+            nodeByKey.set(nodeKey, node)
+
+            if (labyrinth[nx][ny] === 3) {
+                foundziel = true
+            }
+        }
     }
 
-    progressTracker.tick()
-    markVisitedCell(current.coords)
-
-    if (current.coords[0] === end[0] && current.coords[1] === end[1]) {
-        openSet.delete(currentKey)
-        closedSet.add(currentKey)
-        usedpoints.push(current)
-        return { found: true, finished: true }
+    if (expansion.nextNeighborIndex >= expansion.neighbors.length) {
+        usedpoints.push(expansion.current)
+        openSet.delete(expansion.currentKey)
+        closedSet.add(expansion.currentKey)
+        activeExpansion = null
     }
-
-    generatenewpoints(current)
 
     if (foundziel) {
         writeOutputLine("Ziel gefunden!")
-        return { found: true, finished: true }
+        return { found: true, finished: true, inspectedNeighbors: 1 }
     }
 
-    return { found: false, finished: false }
+    return { found: false, finished: false, inspectedNeighbors: 1 }
 }
 
 async function startPathfinding() {
@@ -732,27 +931,24 @@ async function startPathfinding() {
     const progressTracker = createProgressTracker()
     const startedAt = nowMs()
     const searchSpeed = getSearchSpeed()
-    const nodesPerBatch = Math.max(1, Math.ceil(searchSpeed / MAX_BATCHES_PER_SECOND))
-    const batchDelayMs = (nodesPerBatch * 1000) / searchSpeed
+    let remainingNeighborBudget = 0
 
     output2 = []
     clearVisitedHighlights()
+    activeExpansion = null
     scheduleLabyrinthRender()
 
     isPathfinding = true
 
     try {
-        while (openHeap.size > 0) {
-            let processedInBatch = 0
+        while (openHeap.size > 0 || activeExpansion) {
+            remainingNeighborBudget += (searchSpeed * SEARCH_BATCH_INTERVAL_MS) / 1000
 
-            while (processedInBatch < nodesPerBatch && openHeap.size > 0) {
+            while (remainingNeighborBudget >= 1 && (openHeap.size > 0 || activeExpansion)) {
                 const stepResult = processPathfindingStep(progressTracker)
 
-                if (stepResult.skipped) {
-                    continue
-                }
-
-                processedInBatch += 1
+                remainingNeighborBudget -= Math.max(1, stepResult.inspectedNeighbors)
+                remainingNeighborBudget = Math.max(0, remainingNeighborBudget)
 
                 if (stepResult.finished) {
                     found = stepResult.found
@@ -762,15 +958,12 @@ async function startPathfinding() {
 
             scheduleLabyrinthRender()
 
-            if (found || openHeap.size === 0) {
+            if (found || (!activeExpansion && openHeap.size === 0)) {
                 break
             }
 
-            await sleepMs(batchDelayMs)
-
-            if (isLoggingEnabled()) {
-                await yieldToUi()
-            }
+            await sleepMs(SEARCH_BATCH_INTERVAL_MS)
+            await yieldToUi()
         }
     } finally {
         isPathfinding = false
@@ -788,5 +981,6 @@ async function startPathfinding() {
 }
 
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    initializeCanvasInteractions()
     window.addEventListener("resize", scheduleLabyrinthRender)
 }

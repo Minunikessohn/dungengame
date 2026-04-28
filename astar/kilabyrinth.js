@@ -28,6 +28,7 @@ async function generateLab(size) {
     let lastLogAt = startedAt
     let generatedCells = 0
     let generatedCellsSinceYield = 0
+    const generationYieldChunk = isLoggingEnabled() ? GENERATION_UI_CHUNK_WITH_OUTPUT : GENERATION_UI_CHUNK_WITHOUT_OUTPUT
 
     function logProgress(force) {
         if (!isLoggingEnabled()) {
@@ -35,7 +36,9 @@ async function generateLab(size) {
         }
 
         const currentTime = nowMs()
-        if (!force && currentTime - lastLogAt < 1000) {
+        const forceLogNow = consumeForcedProgressLog()
+
+        if (!force && !forceLogNow && currentTime - lastLogAt < 1000) {
             return
         }
 
@@ -61,7 +64,7 @@ async function generateLab(size) {
 
             logProgress(false)
 
-            if (isLoggingEnabled() && generatedCellsSinceYield >= 4096) {
+            if (generatedCellsSinceYield >= generationYieldChunk) {
                 generatedCellsSinceYield = 0
                 await yieldToUi()
             }
