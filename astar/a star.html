@@ -4,16 +4,62 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Labyrinth</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 16px;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background: #f4f4f4;
+            color: #111;
+        }
+
+        #controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        #labyrinth-wrapper {
+            width: min(92vw, 92vh);
+            height: min(62vh, 92vw);
+            min-height: 240px;
+            border: 1px solid #111;
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        #labyrinth-canvas {
+            display: block;
+            background: #ffffff;
+        }
+
+        #output-log {
+            width: min(92vw, 1000px);
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+    </style>
 </head>
 <body>
-    <input id="lab-size" type="number" value="1000" min="1">
-    <button onclick="startgenerateLab(document.getElementById('lab-size').value)">Labyrinth generieren</button>
-    <button onclick="startPathfinding()">Pathfinding starten</button>
-    <label>
-        <input id="log-toggle" type="checkbox" checked onchange="setLoggingEnabled(this.checked)">
-        Ausgabe aktiv
-    </label>
-    <br>
+    <div id="controls">
+        <input id="lab-size" type="number" value="1000" min="1">
+        <button onclick="startgenerateLab(document.getElementById('lab-size').value)">Labyrinth generieren</button>
+        <button onclick="startPathfinding()">Pathfinding starten</button>
+        <label>
+            <input id="log-toggle" type="checkbox" checked onchange="setLoggingEnabled(this.checked)">
+            Ausgabe aktiv
+        </label>
+    </div>
+    <div id="labyrinth-wrapper">
+        <canvas id="labyrinth-canvas"></canvas>
+    </div>
     <textarea id="output-log" rows="18" cols="90" readonly></textarea>
     <script src="kilabyrinth.js"></script>
     <script src="a star.js"></script>

@@ -13,6 +13,18 @@ let isGenerating = false
 let isPathfinding = false
 let loggingEnabled = true
 let outputFieldCache
+let labyrinthCanvasCache
+let labyrinthContextCache
+let labyrinthWrapperCache
+let renderScheduled = false
+
+const CELL_COLORS = {
+    empty: "#ffffff",
+    wall: "#000000",
+    start: "#1fa34a",
+    end: "#d83b01",
+    path: "#2d7ff9"
+}
 
 function getOutputField() {
     if (!loggingEnabled || typeof document === "undefined") {
@@ -24,6 +36,184 @@ function getOutputField() {
     }
 
     return outputFieldCache
+}
+
+function getLabyrinthCanvas() {
+    if (typeof document === "undefined") {
+        return null
+    }
+
+    if (!labyrinthCanvasCache) {
+        labyrinthCanvasCache = document.getElementById("labyrinth-canvas")
+    }
+
+    return labyrinthCanvasCache
+}
+
+function getLabyrinthWrapper() {
+    if (typeof document === "undefined") {
+        return null
+    }
+
+    if (!labyrinthWrapperCache) {
+        labyrinthWrapperCache = document.getElementById("labyrinth-wrapper")
+    }
+
+    return labyrinthWrapperCache
+}
+
+function getLabyrinthContext() {
+    const canvas = getLabyrinthCanvas()
+
+    if (!canvas) {
+        return null
+    }
+
+    if (!labyrinthContextCache) {
+        labyrinthContextCache = canvas.getContext("2d")
+    }
+
+    return labyrinthContextCache
+}
+
+function getCanvasLayout(rowCount, columnCount) {
+    const wrapper = getLabyrinthWrapper()
+    const defaultWidth = 900
+    const defaultHeight = 620
+    const availableWidth = wrapper ? Math.max(120, wrapper.clientWidth || defaultWidth) : defaultWidth
+    const availableHeight = wrapper ? Math.max(120, wrapper.clientHeight || defaultHeight) : defaultHeight
+    const cellSize = Math.min(availableWidth / columnCount, availableHeight / rowCount)
+    const width = Math.max(1, columnCount * cellSize)
+    const height = Math.max(1, rowCount * cellSize)
+
+    return { cellSize, width, height }
+}
+
+function resizeCanvas(width, height) {
+    const canvas = getLabyrinthCanvas()
+    const context = getLabyrinthContext()
+
+    if (!canvas || !context) {
+        return null
+    }
+
+    const pixelRatio = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1
+
+    canvas.width = Math.max(1, Math.round(width * pixelRatio))
+    canvas.height = Math.max(1, Math.round(height * pixelRatio))
+    canvas.style.width = width + "px"
+    canvas.style.height = height + "px"
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
+
+    return context
+}
+
+function clearLabyrinthCanvas() {
+    const context = getLabyrinthContext()
+    const canvas = getLabyrinthCanvas()
+
+    if (!context || !canvas) {
+        return
+    }
+
+    context.clearRect(0, 0, canvas.width, canvas.height)
+}
+
+function drawGridLines(context, rowCount, columnCount, cellSize, width, height) {
+    if (cellSize < 4) {
+        return
+    }
+
+    context.save()
+    context.strokeStyle = "#111111"
+    context.lineWidth = 0.5
+    context.beginPath()
+
+    for (let rowIndex = 0; rowIndex <= rowCount; rowIndex++) {
+        const y = Math.min(height, rowIndex * cellSize)
+        context.moveTo(0, y)
+        context.lineTo(width, y)
+    }
+
+    for (let columnIndex = 0; columnIndex <= columnCount; columnIndex++) {
+        const x = Math.min(width, columnIndex * cellSize)
+        context.moveTo(x, 0)
+        context.lineTo(x, height)
+    }
+
+    context.stroke()
+    context.restore()
+}
+
+function drawCell(context, rowIndex, columnIndex, cellSize, color) {
+    context.fillStyle = color
+    context.fillRect(columnIndex * cellSize, rowIndex * cellSize, cellSize, cellSize)
+}
+
+function renderLabyrinth() {
+    const context = getLabyrinthContext()
+
+    if (!context) {
+        return
+    }
+
+    if (!labyrinth || labyrinth.length === 0 || labyrinth[0].length === 0) {
+        clearLabyrinthCanvas()
+        return
+    }
+
+    const rowCount = labyrinth.length
+    const columnCount = labyrinth[0].length
+    const { cellSize, width, height } = getCanvasLayout(rowCount, columnCount)
+    const resizedContext = resizeCanvas(width, height)
+
+    if (!resizedContext) {
+        return
+    }
+
+    resizedContext.clearRect(0, 0, width, height)
+
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+        for (let columnIndex = 0; columnIndex < columnCount; columnIndex++) {
+            const cellValue = labyrinth[rowIndex][columnIndex]
+            const color = cellValue === 1 ? CELL_COLORS.wall : CELL_COLORS.empty
+            drawCell(resizedContext, rowIndex, columnIndex, cellSize, color)
+        }
+    }
+
+    if (output2 && output2.length > 0) {
+        for (const point of output2) {
+            drawCell(resizedContext, point[0], point[1], cellSize, CELL_COLORS.path)
+        }
+    }
+
+    if (start) {
+        drawCell(resizedContext, start[0], start[1], cellSize, CELL_COLORS.start)
+    }
+
+    if (end) {
+        drawCell(resizedContext, end[0], end[1], cellSize, CELL_COLORS.end)
+    }
+
+    drawGridLines(resizedContext, rowCount, columnCount, cellSize, width, height)
+}
+
+function scheduleLabyrinthRender() {
+    if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+        renderLabyrinth()
+        return
+    }
+
+    if (renderScheduled) {
+        return
+    }
+
+    renderScheduled = true
+
+    window.requestAnimationFrame(() => {
+        renderScheduled = false
+        renderLabyrinth()
+    })
 }
 
 function isLoggingEnabled() {
@@ -143,6 +333,7 @@ async function startgenerateLab(size) {
     nodeByKey.set(key(start[0], start[1]), startNode)
 
     writeOutputLine("Labyrinth bereit.")
+    scheduleLabyrinthRender()
 }
 
 class MinHeap {
@@ -320,6 +511,7 @@ function reconstructPath() {
     }
 
     writeOutputLine("generation complete")
+    scheduleLabyrinthRender()
     return end
 }
 
@@ -457,5 +649,10 @@ async function startPathfinding() {
         reconstructPath()
     } else {
         writeOutputLine("Kein Weg moeglich.")
+        scheduleLabyrinthRender()
     }
+}
+
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("resize", scheduleLabyrinthRender)
 }
