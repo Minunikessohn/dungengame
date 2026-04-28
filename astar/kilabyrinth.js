@@ -30,6 +30,10 @@ async function generateLab(size) {
     let generatedCellsSinceYield = 0
 
     function logProgress(force) {
+        if (!isLoggingEnabled()) {
+            return
+        }
+
         const currentTime = nowMs()
         if (!force && currentTime - lastLogAt < 1000) {
             return
@@ -57,7 +61,7 @@ async function generateLab(size) {
 
             logProgress(false)
 
-            if (generatedCellsSinceYield >= 4096) {
+            if (isLoggingEnabled() && generatedCellsSinceYield >= 4096) {
                 generatedCellsSinceYield = 0
                 await yieldToUi()
             }

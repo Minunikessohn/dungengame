@@ -11,13 +11,31 @@ let closedSet
 let nodeByKey
 let isGenerating = false
 let isPathfinding = false
+let loggingEnabled = true
+let outputFieldCache
 
 function getOutputField() {
-    if (typeof document === "undefined") {
+    if (!loggingEnabled || typeof document === "undefined") {
         return null
     }
 
-    return document.getElementById("output-log")
+    if (!outputFieldCache) {
+        outputFieldCache = document.getElementById("output-log")
+    }
+
+    return outputFieldCache
+}
+
+function isLoggingEnabled() {
+    return loggingEnabled
+}
+
+function setLoggingEnabled(enabled) {
+    loggingEnabled = Boolean(enabled)
+
+    if (!loggingEnabled) {
+        clearOutput()
+    }
 }
 
 function formatOutputPart(value) {
@@ -33,6 +51,10 @@ function formatOutputPart(value) {
 }
 
 function writeOutputLine(...parts) {
+    if (!isLoggingEnabled()) {
+        return
+    }
+
     const outputField = getOutputField()
 
     if (!outputField) {
@@ -48,7 +70,7 @@ function writeOutputLine(...parts) {
 }
 
 function clearOutput() {
-    const outputField = getOutputField()
+    const outputField = outputFieldCache || (typeof document !== "undefined" ? document.getElementById("output-log") : null)
 
     if (!outputField) {
         return
@@ -58,6 +80,10 @@ function clearOutput() {
 }
 
 function yieldToUi() {
+    if (!isLoggingEnabled()) {
+        return Promise.resolve()
+    }
+
     return new Promise(resolve => {
         setTimeout(resolve, 0)
     })
@@ -329,6 +355,10 @@ function createProgressTracker() {
     function tick() {
         visitedNodes += 1
 
+        if (!isLoggingEnabled()) {
+            return
+        }
+
         const currentTime = nowMs()
         if (currentTime - lastLogAt < 1000) {
             return
@@ -345,6 +375,10 @@ function createProgressTracker() {
     }
 
     function finish() {
+        if (!isLoggingEnabled()) {
+            return
+        }
+
         writeOutputLine(
             "[astar] fertig | vergangen:",
             formatDuration(nowMs() - startedAt),
@@ -407,7 +441,7 @@ async function startPathfinding() {
                 break
             }
 
-            if (processedNodesSinceYield >= 1024) {
+            if (isLoggingEnabled() && processedNodesSinceYield >= 1024) {
                 processedNodesSinceYield = 0
                 await yieldToUi()
             }

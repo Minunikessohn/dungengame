@@ -9,6 +9,10 @@
     <input id="lab-size" type="number" value="1000" min="1">
     <button onclick="startgenerateLab(document.getElementById('lab-size').value)">Labyrinth generieren</button>
     <button onclick="startPathfinding()">Pathfinding starten</button>
+    <label>
+        <input id="log-toggle" type="checkbox" checked onchange="setLoggingEnabled(this.checked)">
+        Ausgabe aktiv
+    </label>
     <br>
     <textarea id="output-log" rows="18" cols="90" readonly></textarea>
     <script src="kilabyrinth.js"></script>
