@@ -16,14 +16,21 @@ let outputFieldCache
 let labyrinthCanvasCache
 let labyrinthContextCache
 let labyrinthWrapperCache
+let searchSpeedInputCache
 let renderScheduled = false
+let visitedHighlights = new Map()
+
+const DEFAULT_SEARCH_SPEED = 600
+const VISITED_HIGHLIGHT_FADE_MS = 1400
+const MAX_BATCHES_PER_SECOND = 30
 
 const CELL_COLORS = {
     empty: "#ffffff",
     wall: "#000000",
     start: "#1fa34a",
     end: "#d83b01",
-    path: "#2d7ff9"
+    path: "#2d7ff9",
+    visited: "#f5c542"
 }
 
 function getOutputField() {
@@ -60,6 +67,18 @@ function getLabyrinthWrapper() {
     }
 
     return labyrinthWrapperCache
+}
+
+function getSearchSpeedInput() {
+    if (typeof document === "undefined") {
+        return null
+    }
+
+    if (!searchSpeedInputCache) {
+        searchSpeedInputCache = document.getElementById("search-speed")
+    }
+
+    return searchSpeedInputCache
 }
 
 function getLabyrinthContext() {
@@ -150,6 +169,55 @@ function drawCell(context, rowIndex, columnIndex, cellSize, color) {
     context.fillRect(columnIndex * cellSize, rowIndex * cellSize, cellSize, cellSize)
 }
 
+function blendColorToWhite(hexColor, ratio) {
+    const safeRatio = Math.max(0, Math.min(1, ratio))
+    const red = Number.parseInt(hexColor.slice(1, 3), 16)
+    const green = Number.parseInt(hexColor.slice(3, 5), 16)
+    const blue = Number.parseInt(hexColor.slice(5, 7), 16)
+    const blendedRed = Math.round(red + ((255 - red) * safeRatio))
+    const blendedGreen = Math.round(green + ((255 - green) * safeRatio))
+    const blendedBlue = Math.round(blue + ((255 - blue) * safeRatio))
+
+    return "rgb(" + blendedRed + ", " + blendedGreen + ", " + blendedBlue + ")"
+}
+
+function markVisitedCell(point) {
+    visitedHighlights.set(key(point[0], point[1]), {
+        row: point[0],
+        column: point[1],
+        markedAt: nowMs()
+    })
+}
+
+function clearVisitedHighlights() {
+    visitedHighlights = new Map()
+}
+
+function drawVisitedHighlights(context, cellSize) {
+    if (visitedHighlights.size === 0) {
+        return false
+    }
+
+    const currentTime = nowMs()
+    let hasActiveHighlights = false
+
+    for (const [pointKey, highlight] of visitedHighlights) {
+        const age = currentTime - highlight.markedAt
+
+        if (age >= VISITED_HIGHLIGHT_FADE_MS) {
+            visitedHighlights.delete(pointKey)
+            continue
+        }
+
+        const fadeRatio = age / VISITED_HIGHLIGHT_FADE_MS
+        const color = blendColorToWhite(CELL_COLORS.visited, fadeRatio)
+        drawCell(context, highlight.row, highlight.column, cellSize, color)
+        hasActiveHighlights = true
+    }
+
+    return hasActiveHighlights
+}
+
 function renderLabyrinth() {
     const context = getLabyrinthContext()
 
@@ -181,6 +249,8 @@ function renderLabyrinth() {
         }
     }
 
+    const hasActiveHighlights = drawVisitedHighlights(resizedContext, cellSize)
+
     if (output2 && output2.length > 0) {
         for (const point of output2) {
             drawCell(resizedContext, point[0], point[1], cellSize, CELL_COLORS.path)
@@ -196,6 +266,10 @@ function renderLabyrinth() {
     }
 
     drawGridLines(resizedContext, rowCount, columnCount, cellSize, width, height)
+
+    if (hasActiveHighlights) {
+        scheduleLabyrinthRender()
+    }
 }
 
 function scheduleLabyrinthRender() {
@@ -226,6 +300,23 @@ function setLoggingEnabled(enabled) {
     if (!loggingEnabled) {
         clearOutput()
     }
+}
+
+function getSearchSpeed() {
+    const input = getSearchSpeedInput()
+
+    if (!input) {
+        return DEFAULT_SEARCH_SPEED
+    }
+
+    const parsedValue = Number.parseInt(input.value, 10)
+
+    if (!Number.isInteger(parsedValue) || parsedValue < 1) {
+        input.value = String(DEFAULT_SEARCH_SPEED)
+        return DEFAULT_SEARCH_SPEED
+    }
+
+    return parsedValue
 }
 
 function formatOutputPart(value) {
@@ -279,6 +370,12 @@ function yieldToUi() {
     })
 }
 
+function sleepMs(durationMs) {
+    return new Promise(resolve => {
+        setTimeout(resolve, durationMs)
+    })
+}
+
 async function startgenerateLab(size) {
     const parsedSize = Number.parseInt(size, 10)
 
@@ -315,6 +412,7 @@ async function startgenerateLab(size) {
     output1 = JSON.parse(JSON.stringify(labyrinth))
     output2 = []
     usedpoints = []
+    clearVisitedHighlights()
     openHeap = new MinHeap()
     openSet = new Set()
     closedSet = new Set()
@@ -582,6 +680,38 @@ function createProgressTracker() {
     return { tick, finish }
 }
 
+function processPathfindingStep(progressTracker) {
+    if (openHeap.size === 0) {
+        return { found: false, finished: true }
+    }
+
+    const current = openHeap.pop()
+    const currentKey = key(current.coords[0], current.coords[1])
+
+    if (closedSet.has(currentKey)) {
+        return { found: false, finished: false, skipped: true }
+    }
+
+    progressTracker.tick()
+    markVisitedCell(current.coords)
+
+    if (current.coords[0] === end[0] && current.coords[1] === end[1]) {
+        openSet.delete(currentKey)
+        closedSet.add(currentKey)
+        usedpoints.push(current)
+        return { found: true, finished: true }
+    }
+
+    generatenewpoints(current)
+
+    if (foundziel) {
+        writeOutputLine("Ziel gefunden!")
+        return { found: true, finished: true }
+    }
+
+    return { found: false, finished: false }
+}
+
 async function startPathfinding() {
     if (!labyrinth || !openHeap || !start || !end) {
         writeOutputLine("Bitte zuerst ein Labyrinth generieren.")
@@ -601,40 +731,44 @@ async function startPathfinding() {
     let found = false
     const progressTracker = createProgressTracker()
     const startedAt = nowMs()
-    let processedNodesSinceYield = 0
+    const searchSpeed = getSearchSpeed()
+    const nodesPerBatch = Math.max(1, Math.ceil(searchSpeed / MAX_BATCHES_PER_SECOND))
+    const batchDelayMs = (nodesPerBatch * 1000) / searchSpeed
+
+    output2 = []
+    clearVisitedHighlights()
+    scheduleLabyrinthRender()
 
     isPathfinding = true
 
     try {
         while (openHeap.size > 0) {
-            const current = openHeap.pop()
-            const currentKey = key(current.coords[0], current.coords[1])
+            let processedInBatch = 0
 
-            if (closedSet.has(currentKey)) {
-                continue
+            while (processedInBatch < nodesPerBatch && openHeap.size > 0) {
+                const stepResult = processPathfindingStep(progressTracker)
+
+                if (stepResult.skipped) {
+                    continue
+                }
+
+                processedInBatch += 1
+
+                if (stepResult.finished) {
+                    found = stepResult.found
+                    break
+                }
             }
 
-            progressTracker.tick()
-            processedNodesSinceYield += 1
+            scheduleLabyrinthRender()
 
-            if (current.coords[0] === end[0] && current.coords[1] === end[1]) {
-                openSet.delete(currentKey)
-                closedSet.add(currentKey)
-                usedpoints.push(current)
-                found = true
+            if (found || openHeap.size === 0) {
                 break
             }
 
-            generatenewpoints(current)
+            await sleepMs(batchDelayMs)
 
-            if (foundziel) {
-                writeOutputLine("Ziel gefunden!")
-                found = true
-                break
-            }
-
-            if (isLoggingEnabled() && processedNodesSinceYield >= 1024) {
-                processedNodesSinceYield = 0
+            if (isLoggingEnabled()) {
                 await yieldToUi()
             }
         }
