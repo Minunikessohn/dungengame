@@ -1,4 +1,4 @@
-let labyrinth = generateLab(7000)
+let labyrinth = generateLab(1000)
 
 class MinHeap {
     constructor() {
@@ -182,8 +182,68 @@ function reconstructPath() {
     return end
 }
 
+function nowMs() {
+    if (typeof performance !== "undefined" && typeof performance.now === "function") {
+        return performance.now()
+    }
+
+    return Date.now()
+}
+
+function formatDuration(ms) {
+    if (ms < 1000) {
+        return Math.round(ms) + " ms"
+    }
+
+    const totalSeconds = Math.floor(ms / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+
+    if (minutes === 0) {
+        return seconds + " s"
+    }
+
+    return minutes + " min " + seconds + " s"
+}
+
+function createProgressTracker() {
+    const startedAt = nowMs()
+    let lastLogAt = startedAt
+    let visitedNodes = 0
+
+    function tick() {
+        visitedNodes += 1
+
+        const currentTime = nowMs()
+        if (currentTime - lastLogAt < 1000) {
+            return
+        }
+
+        console.log(
+            "[astar] vergangen:",
+            formatDuration(currentTime - startedAt),
+            "| besuchte Knoten:",
+            visitedNodes
+        )
+
+        lastLogAt = currentTime
+    }
+
+    function finish() {
+        console.log(
+            "[astar] fertig | vergangen:",
+            formatDuration(nowMs() - startedAt),
+            "| besuchte Knoten:",
+            visitedNodes
+        )
+    }
+
+    return { tick, finish }
+}
+
 function startPathfinding() {
     let found = false
+    const progressTracker = createProgressTracker()
 
     console.time("astar")
 
@@ -194,6 +254,8 @@ function startPathfinding() {
         if (closedSet.has(currentKey)) {
             continue
         }
+
+        progressTracker.tick()
 
         if (current.coords[0] === end[0] && current.coords[1] === end[1]) {
             openSet.delete(currentKey)
@@ -213,6 +275,7 @@ function startPathfinding() {
     }
 
     console.timeEnd("astar")
+    progressTracker.finish()
 
     if (found) {
         reconstructPath()
