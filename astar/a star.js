@@ -1,4 +1,48 @@
-let labyrinth = generateLab(1000)
+
+let labyrinth
+let start
+let end
+let output1
+let output2
+let usedpoints
+let openHeap
+let openSet
+let closedSet
+let nodeByKey
+
+function startgenerateLab(size) {
+    const parsedSize = Number.parseInt(size, 10)
+
+    if (!Number.isInteger(parsedSize) || parsedSize < 2) {
+        throw new Error("Die Labyrinth-Groesse muss eine ganze Zahl ab 2 sein.")
+    }
+
+    labyrinth = generateLab(parsedSize)
+
+    const { startCoord, endCoord } = findStartAndEnd()
+    start = startCoord
+    end = endCoord
+
+    output1 = JSON.parse(JSON.stringify(labyrinth))
+    output2 = []
+    usedpoints = []
+    openHeap = new MinHeap()
+    openSet = new Set()
+    closedSet = new Set()
+    nodeByKey = new Map()
+    foundziel = false
+
+    const startNode = {
+        coords: start,
+        g: 0,
+        f: geth(start),
+        pointer: []
+    }
+
+    openHeap.push(startNode)
+    openSet.add(key(start[0], start[1]))
+    nodeByKey.set(key(start[0], start[1]), startNode)
+}
 
 class MinHeap {
     constructor() {
@@ -93,10 +137,6 @@ function findStartAndEnd() {
 
     return { startCoord, endCoord }
 }
-
-const { startCoord, endCoord } = findStartAndEnd()
-let start = startCoord
-let end = endCoord
 
 function geth(point) {
     return Math.abs(end[0] - point[0]) + Math.abs(end[1] - point[1])
@@ -283,22 +323,3 @@ function startPathfinding() {
         console.log("Kein Weg möglich.")
     }
 }
-
-let output1 = JSON.parse(JSON.stringify(labyrinth))
-let output2 = []
-let usedpoints = []
-let openHeap = new MinHeap()
-let openSet = new Set()
-let closedSet = new Set()
-let nodeByKey = new Map()
-
-const startNode = {
-    coords: start,
-    g: 0,
-    f: geth(start),
-    pointer: []
-}
-
-openHeap.push(startNode)
-openSet.add(key(start[0], start[1]))
-nodeByKey.set(key(start[0], start[1]), startNode)

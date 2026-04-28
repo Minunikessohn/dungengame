@@ -1,2 +1,15 @@
 <script src="kilabyrinth.js"></script>
 <script src="a star.js"></script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Labyrinth</title>
+</head>
+<body>
+    <input id="lab-size" type="number" value="1000" min="1">
+    <button onclick="startgenerateLab(document.getElementById('lab-size').value)">Labyrinth generieren</button>
+    <button onclick="startPathfinding()">Pathfinding starten</button>
+</body>
+</html>
