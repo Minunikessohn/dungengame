@@ -55,6 +55,10 @@ async function generateLab(size) {
     // Zufällige Wände (30% Dichte)
     for (let i = 0; i < size; i++) {
         for (let j = 0; j < size; j++) {
+            if (shouldStopGeneration()) {
+                return null
+            }
+
             generatedCells += 1
             generatedCellsSinceYield += 1
 

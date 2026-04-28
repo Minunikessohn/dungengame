@@ -17,8 +17,10 @@ let labyrinthCanvasCache
 let labyrinthContextCache
 let labyrinthWrapperCache
 let searchSpeedInputCache
+let visitedToggleCache
 let renderScheduled = false
 let visitedHighlights = new Map()
+let visitedHistory = new Map()
 let viewZoom = 1
 let viewPanX = 0
 let viewPanY = 0
@@ -30,6 +32,9 @@ let dragStartPanY = 0
 let canvasInteractionsInitialized = false
 let activeExpansion = null
 let forceNextProgressLog = false
+let visitedTrailEnabled = true
+let stopGenerationRequested = false
+let stopPathfindingRequested = false
 
 const DEFAULT_SEARCH_SPEED = 600
 const VISITED_HIGHLIGHT_FADE_MS = 1400
@@ -47,8 +52,10 @@ const CELL_COLORS = {
     start: "#1fa34a",
     end: "#d83b01",
     path: "#2d7ff9",
-    visitedFresh: "#ffe100",
-    visitedSettled: "#8f6a00"
+    visitedPersistent: "#ffd84d",
+    visitedFresh: "#ffe45c",
+    visitedFreshAccent: "#ff9f1c",
+    visitedSettled: "#ff8c00"
 }
 
 function getOutputField() {
@@ -97,6 +104,18 @@ function getSearchSpeedInput() {
     }
 
     return searchSpeedInputCache
+}
+
+function getVisitedToggle() {
+    if (typeof document === "undefined") {
+        return null
+    }
+
+    if (!visitedToggleCache) {
+        visitedToggleCache = document.getElementById("visited-toggle")
+    }
+
+    return visitedToggleCache
 }
 
 function getLabyrinthContext() {
@@ -156,6 +175,14 @@ function clearLabyrinthCanvas() {
     context.clearRect(0, 0, canvas.width, canvas.height)
 }
 
+function shouldStopGeneration() {
+    return stopGenerationRequested
+}
+
+function shouldStopPathfinding() {
+    return stopPathfindingRequested
+}
+
 function drawGridLines(context, rowCount, columnCount, cellSize) {
     if (cellSize < 4) {
         return
@@ -188,6 +215,17 @@ function drawGridLines(context, rowCount, columnCount, cellSize) {
 function drawCell(context, rowIndex, columnIndex, cellSize, color) {
     context.fillStyle = color
     context.fillRect(columnIndex * cellSize, rowIndex * cellSize, cellSize, cellSize)
+}
+
+function drawInsetCell(context, rowIndex, columnIndex, cellSize, color, insetRatio) {
+    const inset = cellSize * insetRatio
+    context.fillStyle = color
+    context.fillRect(
+        (columnIndex * cellSize) + inset,
+        (rowIndex * cellSize) + inset,
+        Math.max(1, cellSize - (2 * inset)),
+        Math.max(1, cellSize - (2 * inset))
+    )
 }
 
 function clamp(value, minValue, maxValue) {
@@ -310,25 +348,53 @@ function blendColorToWhite(hexColor, ratio) {
 }
 
 function markVisitedCell(point) {
-    visitedHighlights.set(key(point[0], point[1]), {
+    const pointKey = key(point[0], point[1])
+
+    visitedHighlights.set(pointKey, {
         row: point[0],
         column: point[1],
-        markedAt: nowMs(),
-        refreshedAt: nowMs()
+        markedAt: nowMs()
+    })
+
+    visitedHistory.set(pointKey, {
+        row: point[0],
+        column: point[1]
     })
 }
 
 function clearVisitedHighlights() {
     visitedHighlights = new Map()
+    visitedHistory = new Map()
 }
 
 function drawVisitedHighlights(context, cellSize) {
-    if (visitedHighlights.size === 0) {
+    let hasActiveHighlights = false
+
+    if (!visitedTrailEnabled) {
+        if (visitedHistory.size === 0) {
+            return false
+        }
+
+        for (const visitedCell of visitedHistory.values()) {
+            drawCell(context, visitedCell.row, visitedCell.column, cellSize, CELL_COLORS.visitedPersistent)
+        }
+
+        for (const highlight of visitedHighlights.values()) {
+            const age = nowMs() - highlight.markedAt
+
+            if (age <= VISITED_HIGHLIGHT_FRESH_MS && cellSize > 3) {
+                drawInsetCell(context, highlight.row, highlight.column, cellSize, CELL_COLORS.visitedFreshAccent, 0.2)
+            }
+        }
+
         return false
     }
 
     const currentTime = nowMs()
-    let hasActiveHighlights = false
+
+    if (visitedHighlights.size === 0) {
+        return false
+    }
 
     for (const [pointKey, highlight] of visitedHighlights) {
         const age = currentTime - highlight.markedAt
@@ -338,11 +404,20 @@ function drawVisitedHighlights(context, cellSize) {
             continue
         }
 
+        if (age <= VISITED_HIGHLIGHT_FRESH_MS) {
+            drawCell(context, highlight.row, highlight.column, cellSize, CELL_COLORS.visitedFresh)
+
+            if (cellSize > 3) {
+                drawInsetCell(context, highlight.row, highlight.column, cellSize, CELL_COLORS.visitedFreshAccent, 0.2)
+            }
+
+            hasActiveHighlights = true
+            continue
+        }
+
         let color = CELL_COLORS.visitedSettled
 
-        if (age <= VISITED_HIGHLIGHT_FRESH_MS) {
-            color = CELL_COLORS.visitedFresh
-        } else if (age > VISITED_HIGHLIGHT_DARK_MS) {
+        if (age > VISITED_HIGHLIGHT_DARK_MS) {
             const fadeRatio = (age - VISITED_HIGHLIGHT_DARK_MS) / (VISITED_HIGHLIGHT_FADE_MS - VISITED_HIGHLIGHT_DARK_MS)
             color = blendColorToWhite(CELL_COLORS.visitedSettled, fadeRatio)
         }
@@ -433,6 +508,17 @@ function isLoggingEnabled() {
     return loggingEnabled
 }
 
+function setVisitedTrailEnabled(enabled) {
+    visitedTrailEnabled = Boolean(enabled)
+
+    const toggle = getVisitedToggle()
+    if (toggle) {
+        toggle.checked = visitedTrailEnabled
+    }
+
+    scheduleLabyrinthRender()
+}
+
 function setLoggingEnabled(enabled) {
     loggingEnabled = Boolean(enabled)
 
@@ -450,6 +536,20 @@ function consumeForcedProgressLog() {
 
     forceNextProgressLog = false
     return true
+}
+
+function stopAllProcesses() {
+    stopGenerationRequested = true
+    stopPathfindingRequested = true
+    activeExpansion = null
+    isCanvasDragging = false
+
+    const wrapper = getLabyrinthWrapper()
+    if (wrapper && typeof wrapper.classList !== "undefined") {
+        wrapper.classList.remove("dragging")
+    }
+
+    writeOutputLine("Stopp angefordert.")
 }
 
 function getSearchSpeed() {
@@ -542,6 +642,8 @@ async function startgenerateLab(size) {
 
     clearOutput()
     writeOutputLine("Labyrinth-Generierung gestartet fuer Groesse", parsedSize)
+    stopGenerationRequested = false
+    stopPathfindingRequested = false
 
     isGenerating = true
 
@@ -549,6 +651,12 @@ async function startgenerateLab(size) {
         labyrinth = await generateLab(parsedSize)
     } finally {
         isGenerating = false
+    }
+
+    if (!labyrinth) {
+        writeOutputLine("Labyrinth-Generierung gestoppt.")
+        scheduleLabyrinthRender()
+        return
     }
 
     const { startCoord, endCoord } = findStartAndEnd()
@@ -836,6 +944,11 @@ function createProgressTracker() {
 }
 
 function processPathfindingStep(progressTracker) {
+    if (shouldStopPathfinding()) {
+        activeExpansion = null
+        return { found: false, finished: true, inspectedNeighbors: 0, stopped: true }
+    }
+
     while (!activeExpansion) {
         if (openHeap.size === 0) {
             return { found: false, finished: true, inspectedNeighbors: 0 }
@@ -936,6 +1049,7 @@ async function startPathfinding() {
     output2 = []
     clearVisitedHighlights()
     activeExpansion = null
+    stopPathfindingRequested = false
     scheduleLabyrinthRender()
 
     isPathfinding = true
@@ -950,6 +1064,10 @@ async function startPathfinding() {
                 remainingNeighborBudget -= Math.max(1, stepResult.inspectedNeighbors)
                 remainingNeighborBudget = Math.max(0, remainingNeighborBudget)
 
+                if (stepResult.stopped) {
+                    break
+                }
+
                 if (stepResult.finished) {
                     found = stepResult.found
                     break
@@ -958,7 +1076,7 @@ async function startPathfinding() {
 
             scheduleLabyrinthRender()
 
-            if (found || (!activeExpansion && openHeap.size === 0)) {
+            if (shouldStopPathfinding() || found || (!activeExpansion && openHeap.size === 0)) {
                 break
             }
 
@@ -972,7 +1090,10 @@ async function startPathfinding() {
     writeOutputLine("astar:", formatDuration(nowMs() - startedAt))
     progressTracker.finish()
 
-    if (found) {
+    if (shouldStopPathfinding()) {
+        writeOutputLine("Pathfinding gestoppt.")
+        scheduleLabyrinthRender()
+    } else if (found) {
         reconstructPath()
     } else {
         writeOutputLine("Kein Weg moeglich.")

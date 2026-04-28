@@ -60,9 +60,14 @@
         <input id="search-speed" type="number" value="600" min="1" step="1">
         <button onclick="startgenerateLab(document.getElementById('lab-size').value)">Labyrinth generieren</button>
         <button onclick="startPathfinding()">Pathfinding starten</button>
+        <button onclick="stopAllProcesses()">Stop</button>
         <label>
             <input id="log-toggle" type="checkbox" checked onchange="setLoggingEnabled(this.checked)">
             Ausgabe aktiv
+        </label>
+        <label>
+            <input id="visited-toggle" type="checkbox" checked onchange="setVisitedTrailEnabled(this.checked)">
+            Besuchte Felder verblassen
         </label>
     </div>
     <div>Mausrad: Zoom. Ziehen: Bewegen.</div>
