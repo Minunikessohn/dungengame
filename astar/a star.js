@@ -9,15 +9,88 @@ let openHeap
 let openSet
 let closedSet
 let nodeByKey
+let isGenerating = false
+let isPathfinding = false
 
-function startgenerateLab(size) {
+function getOutputField() {
+    if (typeof document === "undefined") {
+        return null
+    }
+
+    return document.getElementById("output-log")
+}
+
+function formatOutputPart(value) {
+    if (typeof value === "string") {
+        return value
+    }
+
+    if (typeof value === "number" || typeof value === "boolean" || value == null) {
+        return String(value)
+    }
+
+    return JSON.stringify(value)
+}
+
+function writeOutputLine(...parts) {
+    const outputField = getOutputField()
+
+    if (!outputField) {
+        return
+    }
+
+    if (outputField.value.length > 0) {
+        outputField.value += "\n"
+    }
+
+    outputField.value += parts.map(formatOutputPart).join(" ")
+    outputField.scrollTop = outputField.scrollHeight
+}
+
+function clearOutput() {
+    const outputField = getOutputField()
+
+    if (!outputField) {
+        return
+    }
+
+    outputField.value = ""
+}
+
+function yieldToUi() {
+    return new Promise(resolve => {
+        setTimeout(resolve, 0)
+    })
+}
+
+async function startgenerateLab(size) {
     const parsedSize = Number.parseInt(size, 10)
 
     if (!Number.isInteger(parsedSize) || parsedSize < 2) {
-        throw new Error("Die Labyrinth-Groesse muss eine ganze Zahl ab 2 sein.")
+        writeOutputLine("Fehler:", "Die Labyrinth-Groesse muss eine ganze Zahl ab 2 sein.")
+        return
     }
 
-    labyrinth = generateLab(parsedSize)
+    if (isGenerating) {
+        writeOutputLine("Die Labyrinth-Generierung laeuft bereits.")
+        return
+    }
+
+    if (isPathfinding) {
+        writeOutputLine("Bitte warte, bis das aktuelle Pathfinding beendet ist.")
+        return
+    }
+
+    clearOutput()
+    writeOutputLine("Labyrinth-Generierung gestartet fuer Groesse", parsedSize)
+
+    isGenerating = true
+
+    try {
+        labyrinth = await generateLab(parsedSize)
+    } finally {
+        isGenerating = false
+    }
 
     const { startCoord, endCoord } = findStartAndEnd()
     start = startCoord
@@ -42,6 +115,8 @@ function startgenerateLab(size) {
     openHeap.push(startNode)
     openSet.add(key(start[0], start[1]))
     nodeByKey.set(key(start[0], start[1]), startNode)
+
+    writeOutputLine("Labyrinth bereit.")
 }
 
 class MinHeap {
@@ -200,7 +275,7 @@ function reconstructPath() {
     let node = nodeByKey.get(key(end[0], end[1]))
 
     if (!node) {
-        console.log("Endpunkt nicht in Map gefunden")
+        writeOutputLine("Endpunkt nicht in Map gefunden")
         return end
     }
 
@@ -218,7 +293,7 @@ function reconstructPath() {
         output2.unshift(node.coords)
     }
 
-    console.log("generation complete")
+    writeOutputLine("generation complete")
     return end
 }
 
@@ -259,7 +334,7 @@ function createProgressTracker() {
             return
         }
 
-        console.log(
+        writeOutputLine(
             "[astar] vergangen:",
             formatDuration(currentTime - startedAt),
             "| besuchte Knoten:",
@@ -270,7 +345,7 @@ function createProgressTracker() {
     }
 
     function finish() {
-        console.log(
+        writeOutputLine(
             "[astar] fertig | vergangen:",
             formatDuration(nowMs() - startedAt),
             "| besuchte Knoten:",
@@ -281,45 +356,72 @@ function createProgressTracker() {
     return { tick, finish }
 }
 
-function startPathfinding() {
-    let found = false
-    const progressTracker = createProgressTracker()
-
-    console.time("astar")
-
-    while (openHeap.size > 0) {
-        const current = openHeap.pop()
-        const currentKey = key(current.coords[0], current.coords[1])
-
-        if (closedSet.has(currentKey)) {
-            continue
-        }
-
-        progressTracker.tick()
-
-        if (current.coords[0] === end[0] && current.coords[1] === end[1]) {
-            openSet.delete(currentKey)
-            closedSet.add(currentKey)
-            usedpoints.push(current)
-            found = true
-            break
-        }
-
-        generatenewpoints(current)
-
-        if (foundziel) {
-            console.log("Ziel gefunden!")
-            found = true
-            break
-        }
+async function startPathfinding() {
+    if (!labyrinth || !openHeap || !start || !end) {
+        writeOutputLine("Bitte zuerst ein Labyrinth generieren.")
+        return
     }
 
-    console.timeEnd("astar")
+    if (isGenerating) {
+        writeOutputLine("Bitte warte, bis die Labyrinth-Generierung beendet ist.")
+        return
+    }
+
+    if (isPathfinding) {
+        writeOutputLine("Das Pathfinding laeuft bereits.")
+        return
+    }
+
+    let found = false
+    const progressTracker = createProgressTracker()
+    const startedAt = nowMs()
+    let processedNodesSinceYield = 0
+
+    isPathfinding = true
+
+    try {
+        while (openHeap.size > 0) {
+            const current = openHeap.pop()
+            const currentKey = key(current.coords[0], current.coords[1])
+
+            if (closedSet.has(currentKey)) {
+                continue
+            }
+
+            progressTracker.tick()
+            processedNodesSinceYield += 1
+
+            if (current.coords[0] === end[0] && current.coords[1] === end[1]) {
+                openSet.delete(currentKey)
+                closedSet.add(currentKey)
+                usedpoints.push(current)
+                found = true
+                break
+            }
+
+            generatenewpoints(current)
+
+            if (foundziel) {
+                writeOutputLine("Ziel gefunden!")
+                found = true
+                break
+            }
+
+            if (processedNodesSinceYield >= 1024) {
+                processedNodesSinceYield = 0
+                await yieldToUi()
+            }
+        }
+    } finally {
+        isPathfinding = false
+    }
+
+    writeOutputLine("astar:", formatDuration(nowMs() - startedAt))
     progressTracker.finish()
 
     if (found) {
         reconstructPath()
     } else {
-        console.log("Kein Weg möglich.")
+        writeOutputLine("Kein Weg moeglich.")
     }
 }

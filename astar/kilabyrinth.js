@@ -22,11 +22,12 @@ function formatDuration(ms) {
     return minutes + " min " + seconds + " s"
 }
 
-function generateLab(size) {
+async function generateLab(size) {
     let lab = Array.from({ length: size }, () => Array(size).fill(0))
     const startedAt = nowMs()
     let lastLogAt = startedAt
     let generatedCells = 0
+    let generatedCellsSinceYield = 0
 
     function logProgress(force) {
         const currentTime = nowMs()
@@ -34,7 +35,7 @@ function generateLab(size) {
             return
         }
 
-        console.log(
+        writeOutputLine(
             "[labyrinth] vergangen:",
             formatDuration(currentTime - startedAt),
             "| generierte Kästchen:",
@@ -48,12 +49,18 @@ function generateLab(size) {
     for (let i = 0; i < size; i++) {
         for (let j = 0; j < size; j++) {
             generatedCells += 1
+            generatedCellsSinceYield += 1
 
             if (Math.random() < 0.3) {
                 lab[i][j] = 1
             }
 
             logProgress(false)
+
+            if (generatedCellsSinceYield >= 4096) {
+                generatedCellsSinceYield = 0
+                await yieldToUi()
+            }
         }
     }
 
