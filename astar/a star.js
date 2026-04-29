@@ -35,6 +35,17 @@ let forceNextProgressLog = false
 let visitedTrailEnabled = true
 let stopGenerationRequested = false
 let stopPathfindingRequested = false
+let editorStatusCache
+let brushSizeInputCache
+let eraserSizeInputCache
+let brushSizeValueCache
+let eraserSizeValueCache
+let clearLabyrinthButtonCache
+let fillLabyrinthButtonCache
+let activeEditTool = "brush"
+let brushSize = 3
+let eraserSize = 3
+let isCanvasPainting = false
 
 const DEFAULT_SEARCH_SPEED = 600
 const VISITED_HIGHLIGHT_FADE_MS = 1400
@@ -116,6 +127,90 @@ function getVisitedToggle() {
     }
 
     return visitedToggleCache
+}
+
+function getEditorStatusElement() {
+    if (typeof document === "undefined") {
+        return null
+    }
+
+    if (!editorStatusCache) {
+        editorStatusCache = document.getElementById("editor-status")
+    }
+
+    return editorStatusCache
+}
+
+function getBrushSizeInput() {
+    if (typeof document === "undefined") {
+        return null
+    }
+
+    if (!brushSizeInputCache) {
+        brushSizeInputCache = document.getElementById("brush-size")
+    }
+
+    return brushSizeInputCache
+}
+
+function getEraserSizeInput() {
+    if (typeof document === "undefined") {
+        return null
+    }
+
+    if (!eraserSizeInputCache) {
+        eraserSizeInputCache = document.getElementById("eraser-size")
+    }
+
+    return eraserSizeInputCache
+}
+
+function getBrushSizeValue() {
+    if (typeof document === "undefined") {
+        return null
+    }
+
+    if (!brushSizeValueCache) {
+        brushSizeValueCache = document.getElementById("brush-size-value")
+    }
+
+    return brushSizeValueCache
+}
+
+function getEraserSizeValue() {
+    if (typeof document === "undefined") {
+        return null
+    }
+
+    if (!eraserSizeValueCache) {
+        eraserSizeValueCache = document.getElementById("eraser-size-value")
+    }
+
+    return eraserSizeValueCache
+}
+
+function getClearLabyrinthButton() {
+    if (typeof document === "undefined") {
+        return null
+    }
+
+    if (!clearLabyrinthButtonCache) {
+        clearLabyrinthButtonCache = document.getElementById("clear-labyrinth")
+    }
+
+    return clearLabyrinthButtonCache
+}
+
+function getFillLabyrinthButton() {
+    if (typeof document === "undefined") {
+        return null
+    }
+
+    if (!fillLabyrinthButtonCache) {
+        fillLabyrinthButtonCache = document.getElementById("fill-labyrinth")
+    }
+
+    return fillLabyrinthButtonCache
 }
 
 function getLabyrinthContext() {
@@ -232,6 +327,108 @@ function clamp(value, minValue, maxValue) {
     return Math.min(maxValue, Math.max(minValue, value))
 }
 
+function hasLabyrinth() {
+    return Boolean(labyrinth && labyrinth.length > 0 && labyrinth[0] && labyrinth[0].length > 0)
+}
+
+function isEditingLocked() {
+    return isGenerating || isPathfinding
+}
+
+function updateSizeChip(valueElement, size) {
+    if (valueElement) {
+        valueElement.textContent = String(size)
+    }
+}
+
+function syncToolButtons() {
+    if (typeof document === "undefined") {
+        return
+    }
+
+    const buttons = document.querySelectorAll("[data-tool-button]")
+
+    for (const button of buttons) {
+        const isActive = button.getAttribute("data-tool") === activeEditTool
+        button.classList.toggle("active", isActive)
+        button.disabled = !hasLabyrinth() || isEditingLocked()
+        button.setAttribute("aria-pressed", String(isActive))
+    }
+}
+
+function syncEditorUi() {
+    const statusElement = getEditorStatusElement()
+    const brushInput = getBrushSizeInput()
+    const eraserInput = getEraserSizeInput()
+    const clearButton = getClearLabyrinthButton()
+    const fillButton = getFillLabyrinthButton()
+    const hasGrid = hasLabyrinth()
+    const locked = isEditingLocked()
+
+    if (statusElement) {
+        if (!hasGrid) {
+            statusElement.textContent = "Erst Labyrinth generieren"
+        } else if (locked) {
+            statusElement.textContent = isGenerating ? "Bearbeitung gesperrt: Generierung laeuft" : "Bearbeitung gesperrt: A* laeuft"
+        } else {
+            statusElement.textContent = activeEditTool === "brush" ? "Bearbeitung bereit: Stift aktiv" : "Bearbeitung bereit: Radierer aktiv"
+        }
+    }
+
+    if (brushInput) {
+        brushInput.disabled = !hasGrid || locked
+        brushInput.value = String(brushSize)
+    }
+
+    if (eraserInput) {
+        eraserInput.disabled = !hasGrid || locked
+        eraserInput.value = String(eraserSize)
+    }
+
+    if (clearButton) {
+        clearButton.disabled = !hasGrid || locked
+    }
+
+    if (fillButton) {
+        fillButton.disabled = !hasGrid || locked
+    }
+
+    updateSizeChip(getBrushSizeValue(), brushSize)
+    updateSizeChip(getEraserSizeValue(), eraserSize)
+    syncToolButtons()
+}
+
+function setBrushSize(size) {
+    const parsedSize = Number.parseInt(size, 10)
+    brushSize = clamp(Number.isInteger(parsedSize) ? parsedSize : brushSize, 1, 15)
+
+    if (brushSize % 2 === 0) {
+        brushSize -= 1
+    }
+
+    syncEditorUi()
+}
+
+function setEraserSize(size) {
+    const parsedSize = Number.parseInt(size, 10)
+    eraserSize = clamp(Number.isInteger(parsedSize) ? parsedSize : eraserSize, 1, 15)
+
+    if (eraserSize % 2 === 0) {
+        eraserSize -= 1
+    }
+
+    syncEditorUi()
+}
+
+function setActiveEditTool(toolName) {
+    if (toolName !== "brush" && toolName !== "eraser") {
+        return
+    }
+
+    activeEditTool = toolName
+    syncEditorUi()
+}
+
 function resetViewport() {
     viewZoom = 1
     viewPanX = 0
@@ -280,6 +477,44 @@ function initializeCanvasInteractions() {
         return
     }
 
+    wrapper.addEventListener("contextmenu", event => {
+        event.preventDefault()
+    })
+
+    function beginCanvasDrag(event) {
+        isCanvasDragging = true
+        dragStartX = event.clientX
+        dragStartY = event.clientY
+        dragStartPanX = viewPanX
+        dragStartPanY = viewPanY
+
+        if (typeof wrapper.classList !== "undefined") {
+            wrapper.classList.add("dragging")
+            wrapper.classList.remove("painting")
+        }
+    }
+
+    function stopPainting() {
+        isCanvasPainting = false
+
+        if (typeof wrapper.classList !== "undefined") {
+            wrapper.classList.remove("painting")
+        }
+    }
+
+    function stopDragging() {
+        isCanvasDragging = false
+
+        if (typeof wrapper.classList !== "undefined") {
+            wrapper.classList.remove("dragging")
+        }
+    }
+
+    function stopInteractions() {
+        stopPainting()
+        stopDragging()
+    }
+
     wrapper.addEventListener("wheel", event => {
         if (!labyrinth || labyrinth.length === 0) {
             return
@@ -298,30 +533,37 @@ function initializeCanvasInteractions() {
     }, { passive: false })
 
     wrapper.addEventListener("mousedown", event => {
-        isCanvasDragging = true
-        dragStartX = event.clientX
-        dragStartY = event.clientY
-        dragStartPanX = viewPanX
-        dragStartPanY = viewPanY
+        if (!hasLabyrinth()) {
+            return
+        }
 
-        if (typeof wrapper.classList !== "undefined") {
-            wrapper.classList.add("dragging")
+        if (event.button === 0 && !isEditingLocked() && canPaintAtPointerEvent(event)) {
+            applyActiveToolAtPointerEvent(event)
+            isCanvasPainting = true
+
+            if (typeof wrapper.classList !== "undefined") {
+                wrapper.classList.add("painting")
+                wrapper.classList.remove("dragging")
+            }
+
+            return
+        }
+
+        if (event.button === 0 || event.button === 1 || event.button === 2) {
+            beginCanvasDrag(event)
         }
     })
 
-    const stopDragging = () => {
-        isCanvasDragging = false
-
-        if (typeof wrapper.classList !== "undefined") {
-            wrapper.classList.remove("dragging")
-        }
-    }
-
-    wrapper.addEventListener("mouseleave", stopDragging)
+    wrapper.addEventListener("mouseleave", stopInteractions)
 
     if (typeof window.addEventListener === "function") {
-        window.addEventListener("mouseup", stopDragging)
+        window.addEventListener("mouseup", stopInteractions)
         window.addEventListener("mousemove", event => {
+            if (isCanvasPainting) {
+                applyActiveToolAtPointerEvent(event)
+                return
+            }
+
             if (!isCanvasDragging) {
                 return
             }
@@ -333,6 +575,141 @@ function initializeCanvasInteractions() {
     }
 
     canvasInteractionsInitialized = true
+}
+
+function getCellFromClientPosition(clientX, clientY) {
+    const wrapper = getLabyrinthWrapper()
+
+    if (!wrapper || !hasLabyrinth()) {
+        return null
+    }
+
+    const rect = typeof wrapper.getBoundingClientRect === "function"
+        ? wrapper.getBoundingClientRect()
+        : { left: 0, top: 0 }
+
+    const offsetX = clientX - rect.left
+    const offsetY = clientY - rect.top
+    const viewport = getViewportState(labyrinth.length, labyrinth[0].length)
+    const gridX = offsetX - viewport.originX
+    const gridY = offsetY - viewport.originY
+
+    if (gridX < 0 || gridY < 0 || gridX >= viewport.labyrinthWidth || gridY >= viewport.labyrinthHeight) {
+        return null
+    }
+
+    return {
+        row: Math.floor(gridY / viewport.cellSize),
+        column: Math.floor(gridX / viewport.cellSize)
+    }
+}
+
+function isProtectedCell(rowIndex, columnIndex) {
+    if (start && start[0] === rowIndex && start[1] === columnIndex) {
+        return true
+    }
+
+    if (end && end[0] === rowIndex && end[1] === columnIndex) {
+        return true
+    }
+
+    return false
+}
+
+function markLabyrinthEdited() {
+    output1 = null
+    output2 = []
+    usedpoints = []
+    openHeap = null
+    openSet = null
+    closedSet = null
+    nodeByKey = null
+    activeExpansion = null
+    foundziel = false
+    clearVisitedHighlights()
+}
+
+function getToolSize(toolName) {
+    return toolName === "eraser" ? eraserSize : brushSize
+}
+
+function paintLabyrinthArea(centerRow, centerColumn, makeWall) {
+    if (!hasLabyrinth() || isEditingLocked()) {
+        return false
+    }
+
+    const toolSize = getToolSize(activeEditTool)
+    const radius = Math.floor(toolSize / 2)
+    let changed = false
+
+    for (let rowIndex = centerRow - radius; rowIndex <= centerRow + radius; rowIndex++) {
+        if (rowIndex < 0 || rowIndex >= labyrinth.length) {
+            continue
+        }
+
+        for (let columnIndex = centerColumn - radius; columnIndex <= centerColumn + radius; columnIndex++) {
+            if (columnIndex < 0 || columnIndex >= labyrinth[rowIndex].length || isProtectedCell(rowIndex, columnIndex)) {
+                continue
+            }
+
+            const nextValue = makeWall ? 1 : 0
+
+            if (labyrinth[rowIndex][columnIndex] !== nextValue) {
+                labyrinth[rowIndex][columnIndex] = nextValue
+                changed = true
+            }
+        }
+    }
+
+    if (changed) {
+        markLabyrinthEdited()
+        scheduleLabyrinthRender()
+    }
+
+    return changed
+}
+
+function applyActiveToolAtPointerEvent(event) {
+    const cell = getCellFromClientPosition(event.clientX, event.clientY)
+
+    if (!cell) {
+        return false
+    }
+
+    return paintLabyrinthArea(cell.row, cell.column, activeEditTool === "brush")
+}
+
+function canPaintAtPointerEvent(event) {
+    return Boolean(getCellFromClientPosition(event.clientX, event.clientY))
+}
+
+function paintWholeLabyrinth(makeWall) {
+    if (!hasLabyrinth() || isEditingLocked()) {
+        return
+    }
+
+    let changed = false
+
+    for (let rowIndex = 0; rowIndex < labyrinth.length; rowIndex++) {
+        for (let columnIndex = 0; columnIndex < labyrinth[rowIndex].length; columnIndex++) {
+            if (isProtectedCell(rowIndex, columnIndex)) {
+                continue
+            }
+
+            const nextValue = makeWall ? 1 : 0
+
+            if (labyrinth[rowIndex][columnIndex] !== nextValue) {
+                labyrinth[rowIndex][columnIndex] = nextValue
+                changed = true
+            }
+        }
+    }
+
+    if (changed) {
+        markLabyrinthEdited()
+        writeOutputLine(makeWall ? "Labyrinth komplett schwarz gefuellt." : "Labyrinth komplett weiss geleert.")
+        scheduleLabyrinthRender()
+    }
 }
 
 function blendColorToWhite(hexColor, ratio) {
@@ -543,10 +920,12 @@ function stopAllProcesses() {
     stopPathfindingRequested = true
     activeExpansion = null
     isCanvasDragging = false
+    isCanvasPainting = false
 
     const wrapper = getLabyrinthWrapper()
     if (wrapper && typeof wrapper.classList !== "undefined") {
         wrapper.classList.remove("dragging")
+        wrapper.classList.remove("painting")
     }
 
     writeOutputLine("Stopp angefordert.")
@@ -646,11 +1025,13 @@ async function startgenerateLab(size) {
     stopPathfindingRequested = false
 
     isGenerating = true
+    syncEditorUi()
 
     try {
         labyrinth = await generateLab(parsedSize)
     } finally {
         isGenerating = false
+        syncEditorUi()
     }
 
     if (!labyrinth) {
@@ -669,25 +1050,11 @@ async function startgenerateLab(size) {
     clearVisitedHighlights()
     resetViewport()
     activeExpansion = null
-    openHeap = new MinHeap()
-    openSet = new Set()
-    closedSet = new Set()
-    nodeByKey = new Map()
-    foundziel = false
-
-    const startNode = {
-        coords: start,
-        g: 0,
-        f: geth(start),
-        pointer: []
-    }
-
-    openHeap.push(startNode)
-    openSet.add(key(start[0], start[1]))
-    nodeByKey.set(key(start[0], start[1]), startNode)
+    initializePathfindingState()
 
     writeOutputLine("Labyrinth bereit.")
     scheduleLabyrinthRender()
+    syncEditorUi()
 }
 
 class MinHeap {
@@ -847,7 +1214,41 @@ function generatenewpoints(current) {
 
 let foundziel = false
 
+function initializePathfindingState() {
+    if (!hasLabyrinth() || !start || !end) {
+        return false
+    }
+
+    output1 = labyrinth.map(row => row.slice())
+    output2 = []
+    usedpoints = []
+    clearVisitedHighlights()
+    activeExpansion = null
+    openHeap = new MinHeap()
+    openSet = new Set()
+    closedSet = new Set()
+    nodeByKey = new Map()
+    foundziel = false
+
+    const startNode = {
+        coords: start,
+        g: 0,
+        f: geth(start),
+        pointer: []
+    }
+
+    openHeap.push(startNode)
+    openSet.add(key(start[0], start[1]))
+    nodeByKey.set(key(start[0], start[1]), startNode)
+
+    return true
+}
+
 function reconstructPath() {
+    if (!output1 && labyrinth) {
+        output1 = labyrinth.map(row => row.slice())
+    }
+
     let node = nodeByKey.get(key(end[0], end[1]))
 
     if (!node) {
@@ -1037,7 +1438,7 @@ function processPathfindingStep(progressTracker) {
 }
 
 async function startPathfinding() {
-    if (!labyrinth || !openHeap || !start || !end) {
+    if (!labyrinth || !start || !end) {
         writeOutputLine("Bitte zuerst ein Labyrinth generieren.")
         return
     }
@@ -1058,13 +1459,12 @@ async function startPathfinding() {
     const searchSpeed = getSearchSpeed()
     let remainingNeighborBudget = 0
 
-    output2 = []
-    clearVisitedHighlights()
-    activeExpansion = null
+    initializePathfindingState()
     stopPathfindingRequested = false
     scheduleLabyrinthRender()
 
     isPathfinding = true
+    syncEditorUi()
 
     try {
         while (openHeap.size > 0 || activeExpansion) {
@@ -1097,6 +1497,7 @@ async function startPathfinding() {
         }
     } finally {
         isPathfinding = false
+        syncEditorUi()
     }
 
     writeOutputLine("astar:", formatDuration(nowMs() - startedAt))
@@ -1114,6 +1515,9 @@ async function startPathfinding() {
 }
 
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    setBrushSize(brushSize)
+    setEraserSize(eraserSize)
     initializeCanvasInteractions()
     window.addEventListener("resize", scheduleLabyrinthRender)
+    syncEditorUi()
 }

@@ -5,40 +5,286 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Labyrinth</title>
     <style>
+        :root {
+            --bg-top: #f4ede2;
+            --bg-bottom: #d7e5ef;
+            --panel: rgba(255, 252, 246, 0.92);
+            --panel-border: rgba(48, 57, 67, 0.14);
+            --panel-shadow: 0 18px 42px rgba(42, 54, 66, 0.16);
+            --text-main: #17212b;
+            --text-soft: #5b6772;
+            --accent: #cb5f2a;
+            --accent-strong: #8f3413;
+            --accent-soft: #f4b35f;
+            --ink: #141414;
+            --button-bg: linear-gradient(135deg, #fff8ef 0%, #f1ddbe 100%);
+            --button-border: rgba(79, 57, 35, 0.24);
+            --button-shadow: 0 8px 18px rgba(121, 77, 35, 0.14);
+            --button-active: linear-gradient(135deg, #1f252b 0%, #43505f 100%);
+            --button-active-text: #f6f3ee;
+            --tool-brush: #1f1f1f;
+            --tool-eraser: #ffffff;
+            --canvas-frame: rgba(23, 33, 43, 0.12);
+        }
+
         body {
             margin: 0;
-            padding: 16px;
-            font-family: sans-serif;
+            min-height: 100vh;
+            padding: 24px;
+            box-sizing: border-box;
+            font-family: "Aptos", "Segoe UI Variable", "Bahnschrift", sans-serif;
             display: flex;
             flex-direction: column;
-            gap: 12px;
-            background: #f4f4f4;
-            color: #111;
+            gap: 18px;
+            background:
+                radial-gradient(circle at top left, rgba(255, 255, 255, 0.72), transparent 34%),
+                linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+            color: var(--text-main);
+        }
+
+        .panel {
+            width: min(1120px, 100%);
+            margin: 0 auto;
+            padding: 18px 20px;
+            box-sizing: border-box;
+            border: 1px solid var(--panel-border);
+            border-radius: 24px;
+            background: var(--panel);
+            box-shadow: var(--panel-shadow);
+            backdrop-filter: blur(10px);
+        }
+
+        .hero {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-end;
+        }
+
+        .hero-copy h1 {
+            margin: 0;
+            font-size: clamp(1.8rem, 3vw, 2.8rem);
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .hero-copy p {
+            margin: 8px 0 0;
+            max-width: 760px;
+            color: var(--text-soft);
+            line-height: 1.45;
+        }
+
+        #editor-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            background: rgba(203, 95, 42, 0.12);
+            color: var(--accent-strong);
+            border: 1px solid rgba(203, 95, 42, 0.18);
         }
 
         #controls {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 14px;
+            align-items: stretch;
+        }
+
+        .control-section {
+            flex: 1 1 240px;
+            min-width: 220px;
+            padding: 14px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.78);
+            border: 1px solid rgba(48, 57, 67, 0.09);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .control-section h2 {
+            margin: 0;
+            font-size: 0.98rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .field-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
             align-items: center;
         }
 
+        .field-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 116px;
+            flex: 1 1 116px;
+        }
+
+        .field-stack label,
+        .toggle {
+            font-size: 0.93rem;
+            color: var(--text-soft);
+        }
+
+        .value-chip {
+            align-self: flex-start;
+            min-width: 2.5em;
+            text-align: center;
+            padding: 3px 9px;
+            border-radius: 999px;
+            background: rgba(203, 95, 42, 0.12);
+            color: var(--accent-strong);
+            font-weight: 700;
+        }
+
+        input[type="number"],
+        input[type="range"] {
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        input[type="number"] {
+            padding: 10px 12px;
+            border-radius: 14px;
+            border: 1px solid rgba(48, 57, 67, 0.16);
+            background: rgba(255, 255, 255, 0.96);
+            color: var(--text-main);
+            font: inherit;
+        }
+
+        input[type="range"] {
+            accent-color: var(--accent);
+        }
+
+        button {
+            appearance: none;
+            border: 1px solid var(--button-border);
+            background: var(--button-bg);
+            color: var(--text-main);
+            border-radius: 16px;
+            padding: 11px 16px;
+            font: inherit;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            box-shadow: var(--button-shadow);
+            cursor: pointer;
+            transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease, color 140ms ease;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 22px rgba(121, 77, 35, 0.18);
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+            box-shadow: none;
+        }
+
+        .primary-action {
+            background: linear-gradient(135deg, #f09c5a 0%, #cb5f2a 100%);
+            color: #fffaf4;
+            border-color: rgba(113, 43, 15, 0.24);
+        }
+
+        .danger-action {
+            background: linear-gradient(135deg, #2d2d2d 0%, #000000 100%);
+            color: #fafafa;
+            border-color: rgba(0, 0, 0, 0.3);
+        }
+
+        .tool-row,
+        .action-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .tool-button {
+            flex: 1 1 120px;
+            min-height: 54px;
+            justify-content: center;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .tool-button::before {
+            content: "";
+            width: 18px;
+            height: 18px;
+            border-radius: 6px;
+            border: 2px solid rgba(23, 33, 43, 0.7);
+        }
+
+        .tool-button[data-tool="brush"]::before {
+            background: var(--tool-brush);
+        }
+
+        .tool-button[data-tool="eraser"]::before {
+            background: var(--tool-eraser);
+        }
+
+        .tool-button.active {
+            background: var(--button-active);
+            color: var(--button-active-text);
+            border-color: rgba(13, 18, 23, 0.2);
+        }
+
+        .tool-button.active::before {
+            border-color: rgba(255, 255, 255, 0.74);
+        }
+
+        .toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 40px;
+        }
+
+        .canvas-hint {
+            width: min(1120px, 100%);
+            margin: 0 auto;
+            color: var(--text-soft);
+            font-size: 0.96rem;
+        }
+
         #labyrinth-wrapper {
-            width: min(92vw, 92vh);
-            height: min(62vh, 92vw);
+            width: min(1120px, 100%);
+            height: min(68vh, 92vw);
             min-height: 240px;
-            border: 1px solid #111;
-            background: #ffffff;
+            margin: 0 auto;
+            border: 1px solid var(--canvas-frame);
+            border-radius: 28px;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(246, 240, 230, 0.96));
             display: flex;
             align-items: center;
             justify-content: center;
             overflow: hidden;
             cursor: grab;
             user-select: none;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7), 0 24px 54px rgba(42, 54, 66, 0.18);
         }
 
         #labyrinth-wrapper.dragging {
             cursor: grabbing;
+        }
+
+        #labyrinth-wrapper.painting {
+            cursor: crosshair;
         }
 
         #labyrinth-canvas {
@@ -47,30 +293,99 @@
         }
 
         #output-log {
-            width: min(92vw, 1000px);
+            width: min(1120px, 100%);
+            margin: 0 auto;
             max-width: 100%;
             box-sizing: border-box;
+            border-radius: 24px;
+            border: 1px solid rgba(48, 57, 67, 0.15);
+            background: rgba(19, 28, 36, 0.92);
+            color: #f4e5cc;
+            padding: 16px;
+            font: 0.95rem/1.45 "Consolas", "Cascadia Mono", monospace;
+            box-shadow: 0 22px 44px rgba(17, 22, 28, 0.22);
+        }
+
+        @media (max-width: 720px) {
+            body {
+                padding: 14px;
+            }
+
+            .panel {
+                padding: 16px;
+                border-radius: 20px;
+            }
+
+            #labyrinth-wrapper {
+                border-radius: 20px;
+            }
         }
     </style>
 </head>
 <body>
-    <div id="controls">
-        <input id="lab-size" type="number" value="1000" min="1">
-        <label for="search-speed">Felder/s</label>
-        <input id="search-speed" type="number" value="600" min="1" step="1">
-        <button onclick="startgenerateLab(document.getElementById('lab-size').value)">Labyrinth generieren</button>
-        <button onclick="startPathfinding()">Pathfinding starten</button>
-        <button onclick="stopAllProcesses()">Stop</button>
-        <label>
-            <input id="log-toggle" type="checkbox" checked onchange="setLoggingEnabled(this.checked)">
-            Ausgabe aktiv
-        </label>
-        <label>
-            <input id="visited-toggle" type="checkbox" checked onchange="setVisitedTrailEnabled(this.checked)">
-            Besuchte Felder verblassen
-        </label>
-    </div>
-    <div>Mausrad: Zoom. Ziehen: Bewegen.</div>
+    <section class="panel hero">
+        <div class="hero-copy">
+            <h1>A* Labyrinth Studio</h1>
+            <p>Plane Wege direkt im Labyrinth: Wände malen, Bereiche freiräumen, alles auf einmal füllen und die Suche nur dann starten, wenn dein Plan steht.</p>
+        </div>
+        <div id="editor-status">Bearbeitung bereit</div>
+    </section>
+
+    <section class="panel" id="controls">
+        <div class="control-section">
+            <h2>Labyrinth</h2>
+            <div class="field-row">
+                <div class="field-stack">
+                    <label for="lab-size">Groesse</label>
+                    <input id="lab-size" type="number" value="1000" min="2">
+                </div>
+                <div class="field-stack">
+                    <label for="search-speed">Felder/s</label>
+                    <input id="search-speed" type="number" value="600" min="1" step="1">
+                </div>
+            </div>
+            <div class="action-row">
+                <button class="primary-action" type="button" onclick="startgenerateLab(document.getElementById('lab-size').value)">Labyrinth generieren</button>
+                <button type="button" onclick="startPathfinding()">Pathfinding starten</button>
+                <button class="danger-action" type="button" onclick="stopAllProcesses()">Stop</button>
+            </div>
+            <label class="toggle">
+                <input id="log-toggle" type="checkbox" checked onchange="setLoggingEnabled(this.checked)">
+                Ausgabe aktiv
+            </label>
+            <label class="toggle">
+                <input id="visited-toggle" type="checkbox" checked onchange="setVisitedTrailEnabled(this.checked)">
+                Besuchte Felder verblassen
+            </label>
+        </div>
+
+        <div class="control-section">
+            <h2>Malwerkzeuge</h2>
+            <div class="tool-row">
+                <button id="tool-brush" class="tool-button active" data-tool-button data-tool="brush" type="button" onclick="setActiveEditTool('brush')">Stift</button>
+                <button id="tool-eraser" class="tool-button" data-tool-button data-tool="eraser" type="button" onclick="setActiveEditTool('eraser')">Radierer</button>
+            </div>
+            <div class="field-row">
+                <div class="field-stack">
+                    <label for="brush-size">Stiftgroesse</label>
+                    <input id="brush-size" type="range" min="1" max="15" step="2" value="3" oninput="setBrushSize(this.value)">
+                    <span id="brush-size-value" class="value-chip">3</span>
+                </div>
+                <div class="field-stack">
+                    <label for="eraser-size">Radiergroesse</label>
+                    <input id="eraser-size" type="range" min="1" max="15" step="2" value="3" oninput="setEraserSize(this.value)">
+                    <span id="eraser-size-value" class="value-chip">3</span>
+                </div>
+            </div>
+            <div class="action-row">
+                <button id="clear-labyrinth" type="button" onclick="paintWholeLabyrinth(false)">Alles weiss</button>
+                <button id="fill-labyrinth" class="danger-action" type="button" onclick="paintWholeLabyrinth(true)">Alles schwarz</button>
+            </div>
+        </div>
+    </section>
+
+    <div class="canvas-hint">Mausrad zoomt. Linksklick malt mit dem aktiven Werkzeug. Rechte oder mittlere Maustaste verschiebt die Ansicht.</div>
+
     <div id="labyrinth-wrapper">
         <canvas id="labyrinth-canvas"></canvas>
     </div>
