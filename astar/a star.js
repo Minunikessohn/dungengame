@@ -989,22 +989,34 @@ function processPathfindingStep(progressTracker) {
     expansion.nextNeighborIndex += 1
 
     if (nx >= 0 && nx < labyrinth.length && ny >= 0 && ny < labyrinth[nx].length) {
-        if (labyrinth[nx][ny] !== 1 && !pointgeneratet([nx, ny])) {
-            const node = {
-                coords: [nx, ny],
-                g: expansion.current.g + 1,
-                f: expansion.current.g + 1 + geth([nx, ny]),
-                pointer: [expansion.current.coords[0], expansion.current.coords[1]]
-            }
-
-            openHeap.push(node)
-
+        if (labyrinth[nx][ny] !== 1) {
             const nodeKey = key(nx, ny)
-            openSet.add(nodeKey)
-            nodeByKey.set(nodeKey, node)
+            const newG = expansion.current.g + 1
+            
+            // Prüfen ob Knoten bereits in openSet
+            if (openSet.has(nodeKey)) {
+                const existingNode = nodeByKey.get(nodeKey)
+                // Nur aktualisieren wenn besserer Pfad gefunden
+                if (newG < existingNode.g) {
+                    existingNode.g = newG
+                    existingNode.f = newG + geth([nx, ny])
+                    existingNode.pointer = [expansion.current.coords[0], expansion.current.coords[1]]
+                }
+            } else if (!closedSet.has(nodeKey)) {
+                const node = {
+                    coords: [nx, ny],
+                    g: newG,
+                    f: newG + geth([nx, ny]),
+                    pointer: [expansion.current.coords[0], expansion.current.coords[1]]
+                }
 
-            if (labyrinth[nx][ny] === 3) {
-                foundziel = true
+                openHeap.push(node)
+                openSet.add(nodeKey)
+                nodeByKey.set(nodeKey, node)
+
+                if (labyrinth[nx][ny] === 3) {
+                    foundziel = true
+                }
             }
         }
     }
